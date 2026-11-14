@@ -8,11 +8,12 @@ namespace Loom.Hosting.Android.Audio;
 
 /// <summary>
 /// Android's audio output, through AAudio: a low-latency output stream in 32-bit float stereo, asking for exclusive
-/// use of the output (the MMAP path, where the device has one; AAudio shares it otherwise), with its buffer at two
-/// bursts — the floor AAudio's own guidance gives for glitch-free low latency. AAudio calls back on its own
-/// high-priority thread with the device's buffer, and the mixer renders straight into it. When the output goes
-/// (headphones unplugged, a Bluetooth device dropping), the stream is reopened on the new default output at the same
-/// rate, from a thread of its own: AAudio forbids reopening from its callbacks.
+/// use of the output (the MMAP path, where the device has one; AAudio shares it otherwise, and a stream whose exclusive
+/// use is taken from it before it starts is reopened shared), with its buffer at two bursts — the floor AAudio's own
+/// guidance gives for glitch-free low latency. AAudio calls back on its own high-priority thread with the device's
+/// buffer, through <see cref="AAudioShim"/> (AAudio can't call C# directly), and the mixer renders straight into it.
+/// When the output goes (headphones unplugged, a Bluetooth device dropping), the stream is reopened on the new default
+/// output at the same rate, from a thread of its own: AAudio forbids reopening from its callbacks.
 /// </summary>
 internal sealed unsafe class AAudioDevice : IAudioDevice
 {
@@ -22,12 +23,14 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 	private readonly AudioOptions _options;
 	private readonly object _gate = new(); // the game thread's and the reopening thread's; never taken on the audio thread
 	private GCHandle _self;
+	private AAudioShim.Target* _target; // the stream's user data: native memory, so AAudio's pointer to it never moves
 	private nint _stream;
 	private int _channels;
 	private float[] _scratch = [];
 	private IAudioRenderer? _renderer;
 	private bool _running;
 	private bool _disposed;
+	private bool _exclusive = true; // asked for until an exclusive stream is taken from the app twice before it starts
 
 	private AAudioDevice(AudioOptions options) => _options = options;
 
@@ -43,8 +46,13 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 	public static AAudioDevice? TryOpen(AudioOptions options, out string reason)
 	{
 		ArgumentNullException.ThrowIfNull(options);
+		reason = AAudioShim.Failure;
+		if (reason.Length != 0)
+			return null;
 		var device = new AAudioDevice(options);
 		device._self = GCHandle.Alloc(device);
+		device._target = (AAudioShim.Target*)NativeMemory.Alloc((nuint)sizeof(AAudioShim.Target));
+		*device._target = new AAudioShim.Target { Data = &OnData, Error = &OnError, User = GCHandle.ToIntPtr(device._self) };
 		try
 		{
 			reason = device.Open(options.SampleRate);
@@ -73,11 +81,10 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 			AAudio.AAudioStreamBuilder_setChannelCount(builder, 2);
 			AAudio.AAudioStreamBuilder_setSampleRate(builder, sampleRate);
 			AAudio.AAudioStreamBuilder_setPerformanceMode(builder, AAudio.PerformanceModeLowLatency);
-			AAudio.AAudioStreamBuilder_setSharingMode(builder, AAudio.SharingModeExclusive);
+			AAudio.AAudioStreamBuilder_setSharingMode(builder, _exclusive ? AAudio.SharingModeExclusive : AAudio.SharingModeShared);
 			AAudio.AAudioStreamBuilder_setUsage(builder, AAudio.UsageGame);
-			var self = GCHandle.ToIntPtr(_self);
-			AAudio.AAudioStreamBuilder_setDataCallback(builder, &OnData, self);
-			AAudio.AAudioStreamBuilder_setErrorCallback(builder, &OnError, self);
+			AAudio.AAudioStreamBuilder_setDataCallback(builder, AAudioShim.Data, (nint)_target);
+			AAudio.AAudioStreamBuilder_setErrorCallback(builder, AAudioShim.Error, (nint)_target);
 			nint stream;
 			result = AAudio.AAudioStreamBuilder_openStream(builder, &stream);
 			if (result != AAudio.Ok)
@@ -133,9 +140,9 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 			_running = true;
 			if (_stream == 0)
 				return;
-			var result = AAudio.AAudioStream_requestStart(_stream);
-			if (result != AAudio.Ok)
-				throw new InvalidOperationException($"AAudio would not start the output: {AAudio.Text(result)}");
+			var failure = StartLocked();
+			if (failure.Length != 0)
+				throw new InvalidOperationException(failure);
 		}
 	}
 
@@ -149,6 +156,8 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 			Close();
 			if (_self.IsAllocated)
 				_self.Free();
+			NativeMemory.Free(_target); // after Close: AAudio makes no callback once its stream is closed
+			_target = null;
 		}
 	}
 
@@ -169,22 +178,54 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 		{
 			if (_disposed || _stream != failed)
 				return;
-			Close();
-			var rate = SampleRate;
-			var failure = Open(rate);
-			if (failure.Length == 0 && SampleRate != rate)
-				failure = $"the new output runs at {SampleRate} Hz, not the engine's {rate} Hz";
+			var failure = ReopenLocked();
 			if (failure.Length != 0)
 			{
-				// No output to go to, or not at the rate the engine's clips were made at: silent rather than wrong
-				Close();
-				SampleRate = rate;
 				LoomLog.Warning($"The audio output went and could not be reopened, so the app is silent: {failure}");
 				return;
 			}
 			LoomLog.Info($"audio output changed; now {Name}");
-			if (_running)
-				AAudio.AAudioStream_requestStart(_stream);
+			if (_running && StartLocked() is { Length: > 0 } notStarted)
+				LoomLog.Warning($"The audio output was reopened but would not start, so the app is silent: {notStarted}");
+		}
+	}
+
+	// Closes the stream and opens one on the output as it is now, at the engine's rate; "" on success, else why not, with
+	// no stream open. Under _gate
+	private string ReopenLocked()
+	{
+		Close();
+		var rate = SampleRate;
+		var failure = Open(rate);
+		if (failure.Length == 0 && SampleRate != rate)
+			failure = $"the new output runs at {SampleRate} Hz, not the engine's {rate} Hz";
+		if (failure.Length != 0)
+		{
+			// No output to go to, or not at the rate the engine's clips were made at: silent rather than wrong
+			Close();
+			SampleRate = rate;
+		}
+		return failure;
+	}
+
+	// Starts the stream; "" on success, else why not. Under _gate. AAudio can report an output gone before it ever starts:
+	// an exclusive (MMAP) stream another client took, or the routing changing between open and start. That stream is
+	// reopened and started again, and if exclusive use is taken a second time, the next is a shared stream instead
+	private string StartLocked()
+	{
+		for (var attempt = 0; ; attempt++)
+		{
+			var result = AAudio.AAudioStream_requestStart(_stream);
+			if (result == AAudio.Ok)
+				return "";
+			if (result != AAudio.ErrorDisconnected || attempt == 2)
+				return $"AAudio would not start the output: {AAudio.Text(result)}";
+			if (attempt == 1)
+				_exclusive = false;
+			var failure = ReopenLocked();
+			if (failure.Length != 0)
+				return failure;
+			LoomLog.Info($"audio output was gone before it started; reopened as {Name}");
 		}
 	}
 

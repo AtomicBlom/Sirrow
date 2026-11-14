@@ -8,7 +8,7 @@ output device behind one seam, `IAudioDevice`:
 | Host | Backend | Where the mix runs | Latency it adds |
 |---|---|---|---|
 | Desktop (`Loom.Hosting.Desktop`) | SDL 3 | SDL's audio thread | one device buffer (the platform's period: 10 ms on Windows' shared-mode WASAPI) |
-| Android (`Loom.Hosting.Android`) | AAudio, low-latency, exclusive where the device allows | AAudio's callback thread | two bursts |
+| Android (`Loom.Hosting.Android`) | AAudio, low-latency, exclusive where the device allows | AAudio's callback thread | two bursts (4 ms on a Galaxy S23 Ultra's exclusive MMAP path) |
 | Browser (`Loom.Hosting.Web`) | an AudioWorklet | the frame thread, a 50 ms lead ahead of the speaker | the lead, by design: the .NET runtime can't run on the browser's audio thread |
 
 ## Use it from a LoomApplication

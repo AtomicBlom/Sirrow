@@ -14,10 +14,11 @@ internal sealed class AudioMixer : IAudioRenderer
 	public const int BlockFrames = 256;
 
 	/// <summary>
-	/// Callbacks left out of <see cref="MaxRenderLoad"/>: the first renders compile the mix (and any source's code) as they
-	/// run, and would otherwise set a peak no later block comes near.
+	/// The span of audio, in seconds, left out of <see cref="MaxRenderLoad"/>: the first renders compile the mix (and any
+	/// source's code) as they run, and would otherwise set a peak no later block comes near. A span rather than a count of
+	/// callbacks, so it covers the same start-up on a 2 ms buffer as on a 10 ms one.
 	/// </summary>
-	private const int WarmUpCallbacks = 16;
+	private const double WarmUpSeconds = 0.25;
 
 	private readonly int _sampleRate;
 	private readonly AudioEventQueue<AudioCommand> _commands;
@@ -74,7 +75,7 @@ internal sealed class AudioMixer : IAudioRenderer
 		var load = frames > 0 ? seconds * _sampleRate / frames : 0.0;
 		Volatile.Write(ref _peak, peak);
 		Volatile.Write(ref _renderLoad, load);
-		if (_callbacks >= WarmUpCallbacks && load > _maxRenderLoad)
+		if (_framesRendered >= _sampleRate * WarmUpSeconds && load > _maxRenderLoad)
 			Volatile.Write(ref _maxRenderLoad, load);
 		Volatile.Write(ref _lastCallbackFrames, frames);
 		Volatile.Write(ref _callbacks, _callbacks + 1);

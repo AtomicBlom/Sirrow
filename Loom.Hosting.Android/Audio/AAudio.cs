@@ -18,6 +18,7 @@ internal static unsafe partial class AAudio
 	public const int DirectionOutput = 0;
 	public const int FormatPcmFloat = 2;
 	public const int SharingModeExclusive = 0;
+	public const int SharingModeShared = 1;
 	public const int PerformanceModeLowLatency = 12;
 	public const int UsageGame = 14;
 	public const int CallbackResultContinue = 0;
