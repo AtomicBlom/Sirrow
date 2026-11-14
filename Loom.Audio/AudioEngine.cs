@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 
 using Loom.Audio.Decoding;
+using Loom.Audio.Decoding.Vorbis;
 using Loom.Audio.Mixing;
 
 namespace Loom.Audio;
@@ -50,6 +51,11 @@ public sealed class AudioEngine : IDisposable
 	private readonly bool[] _duckEnabled;
 	private int _duckCount;
 	private readonly float _unfocusedVolume;
+	// Open streams, replaced whole as they open and close, and what keeps their rings topped up: a thread of their own, or
+	// in the browser (where the mix itself runs on the frame thread) Update
+	private AudioStream[] _streams = [];
+	private AudioStreamer? _streamer;
+	private readonly bool _pumpStreams = OperatingSystem.IsBrowser();
 	private bool _disposed;
 
 	/// <summary>An engine playing through <paramref name="device"/>, which it starts and from then on owns (disposing it with itself).</summary>
@@ -383,14 +389,116 @@ public sealed class AudioEngine : IDisposable
 	}
 
 	/// <summary>
-	/// Hears from the audio thread: frees the voices that have ended, and throws what a source threw there. A
-	/// <c>LoomApplication</c> calls it once a frame; an engine used on its own should too.
+	/// A clip of an Ogg Vorbis file's contents, decoded whole and converted to the engine's rate: for sound effects and
+	/// short loops. Music is better streamed (<see cref="OpenStream(byte[], bool)"/>), which holds only the compressed file.
+	/// Any thread may call it.
 	/// </summary>
-	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> threw on the audio thread (the inner exception); its voice was stopped.</exception>
+	/// <exception cref="InvalidDataException">The bytes aren't Ogg Vorbis, or are damaged.</exception>
+	/// <exception cref="NotSupportedException">The file has more than two channels.</exception>
+	public AudioClip LoadOgg(ReadOnlySpan<byte> ogg)
+	{
+		var decoder = new VorbisDecoder(new MemoryStream(ogg.ToArray(), writable: false));
+		CheckStreamChannels(decoder);
+		var samples = new float[decoder.SampleRate * decoder.Channels];
+		var count = 0;
+		while (true)
+		{
+			if (count == samples.Length)
+				Array.Resize(ref samples, samples.Length * 2);
+			var frames = decoder.Read(samples.AsSpan(count));
+			if (frames == 0)
+				break;
+			count += frames * decoder.Channels;
+		}
+		return ClipFactory.Create(samples.AsSpan(0, count), decoder.Channels, decoder.SampleRate, SampleRate);
+	}
+
+	/// <summary>
+	/// Opens an Ogg Vorbis file to stream: decoded as it plays, holding only the compressed bytes. Play it as any source,
+	/// with <see cref="Play(AudioSource, AudioBus, float, float)"/>; each play starts from the beginning. Dispose it when done.
+	/// </summary>
+	/// <param name="ogg">The file's bytes, as <c>ReadContent</c> gives them.</param>
+	/// <param name="loop">Whether it starts over at its end, without a gap, until stopped.</param>
+	/// <exception cref="InvalidDataException">The bytes aren't Ogg Vorbis, or are damaged.</exception>
+	/// <exception cref="NotSupportedException">The file has more than two channels.</exception>
+	public AudioStream OpenStream(byte[] ogg, bool loop = false)
+	{
+		ArgumentNullException.ThrowIfNull(ogg);
+		return OpenStream(new MemoryStream(ogg, writable: false), loop);
+	}
+
+	/// <summary>
+	/// Opens an Ogg Vorbis file to stream from <paramref name="ogg"/>, which the stream then owns and closes. A file stream is
+	/// read as it plays, off the audio thread; a stream that can't seek (an Android asset's) is read into memory first, so
+	/// it can loop and play again.
+	/// </summary>
+	/// <inheritdoc cref="OpenStream(byte[], bool)"/>
+	public AudioStream OpenStream(Stream ogg, bool loop = false)
+	{
+		CheckThread();
+		ArgumentNullException.ThrowIfNull(ogg);
+		if (!ogg.CanSeek)
+		{
+			var copy = new MemoryStream();
+			using (ogg)
+				ogg.CopyTo(copy);
+			copy.Position = 0;
+			ogg = copy;
+		}
+
+		VorbisDecoder decoder;
+		try
+		{
+			decoder = new VorbisDecoder(ogg);
+			CheckStreamChannels(decoder);
+		}
+		catch
+		{
+			ogg.Dispose();
+			throw;
+		}
+		var stream = new AudioStream(this, ogg, decoder, loop);
+		_streams = [.. _streams, stream];
+		if (!_pumpStreams)
+		{
+			_streamer ??= new AudioStreamer();
+			_streamer.SetStreams(_streams);
+		}
+		return stream;
+	}
+
+	// A stream disposing: its voice stopped, and no more decoding for it
+	internal void Close(AudioStream stream)
+	{
+		CheckThread();
+		Stop(stream);
+		_streams = Array.FindAll(_streams, s => s != stream);
+		_streamer?.SetStreams(_streams);
+	}
+
+	private static void CheckStreamChannels(VorbisDecoder decoder)
+	{
+		if (decoder.Channels > 2)
+			throw new NotSupportedException($"The file has {decoder.Channels} channels: the engine plays mono and stereo.");
+	}
+
+	/// <summary>
+	/// Hears from the audio thread: frees the voices that have ended, and throws what a source threw there or a stream's
+	/// decoding threw. In the browser it also decodes ahead for the streams. A <c>LoomApplication</c> calls it once a frame;
+	/// an engine used on its own should too.
+	/// </summary>
+	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> threw on the audio thread, or an <see cref="AudioStream"/>'s file failed to decode (the inner exception); its voice was stopped.</exception>
 	public void Update()
 	{
 		CheckThread();
 		TakeEnded();
+		foreach (var stream in _streams)
+		{
+			if (_pumpStreams)
+				stream.Fill(int.MaxValue);
+			if (stream.TakeFault() is { } failed)
+				throw new InvalidOperationException($"An audio stream failed to decode, and stopped: {failed.Message}", failed);
+		}
 		if (Interlocked.Exchange(ref _mixer.Fault, null) is { } fault)
 			throw new InvalidOperationException($"An audio source threw on the audio thread, and its voice was stopped: {fault.Message}", fault);
 	}
@@ -409,13 +517,17 @@ public sealed class AudioEngine : IDisposable
 		Device.Resume();
 	}
 
-	/// <summary>Stops and closes the device.</summary>
+	/// <summary>Stops and closes the device, and closes every open stream.</summary>
 	public void Dispose()
 	{
 		if (_disposed)
 			return;
 		_disposed = true;
 		Device.Dispose();
+		_streamer?.Dispose();
+		foreach (var stream in _streams)
+			stream.Close();
+		_streams = [];
 	}
 
 	private bool IsLive(VoiceHandle voice) =>

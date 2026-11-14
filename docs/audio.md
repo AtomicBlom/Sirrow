@@ -87,17 +87,56 @@ A clip is sound decoded into memory, ready to play any number of times at once: 
 
 ```csharp
 var hit = Audio.LoadWav(ReadContent("sounds/hit.wav"));            // a WAV file's bytes
+var step = Audio.LoadOgg(ReadContent("sounds/step.ogg"));          // an Ogg Vorbis file's bytes
 var beep = Audio.CreateClip(samples, channels: 1, sampleRate: 44_100); // samples the app made, -1..1
 ```
 
 - `LoadWav` reads RIFF/WAVE files: PCM at 8, 16, 24 or 32 bits, and IEEE float at 32 or 64, mono or stereo
   (`WAVE_FORMAT_EXTENSIBLE` included). Any other format throws `NotSupportedException`, and bytes that aren't a WAV
   file throw `InvalidDataException`.
+- `LoadOgg` decodes an Ogg Vorbis file whole, mono or stereo. A file with more channels throws
+  `NotSupportedException`, and bytes that aren't Ogg Vorbis, or are damaged, throw `InvalidDataException`. For music,
+  stream instead (below): a clip holds every decoded sample, ten times the file's size or more.
 - Both convert the clip to the engine's rate as it loads, so playing it never resamples (a pitch other than 1 aside).
   The conversion is a 4-point Hermite curve, which doesn't filter on the way down: a 96 kHz clip loaded at 48 kHz can
   alias faintly. Supply clips at the engine's rate where that matters.
 - **Any thread may make a clip.** Decode on a loading thread (`ReadContentAsync`) and play on the frame thread.
 - A clip belongs to the engine whose rate it was made at. Playing it on an engine at another rate throws.
+
+### Streams
+
+Music is streamed: decoded as it plays, from an Ogg Vorbis file held compressed. An `AudioStream` is a source, so it
+plays, fades, pans and stops like one.
+
+```csharp
+_theme = Audio.OpenStream(ReadContent("music/theme.ogg"), loop: true);
+Audio.Play(_theme, music);
+// ... later
+Audio.Stop(_theme, fadeSeconds: 2f);
+_theme.Dispose(); // once it has faded, or when the game is done with it
+```
+
+- **Each play starts from the beginning.** A looping stream joins its end to its start without a gap, to the sample:
+  the file's length is exactly what was encoded (its last page's granule position says so).
+- **Decoding never happens on the audio thread.** A streaming thread of the engine's decodes about half a second
+  ahead into a lock-free ring, waking every 10 ms, and the audio thread reads the ring. In the browser, where the mix
+  runs on the frame thread, `Audio.Update()` decodes ahead instead. A play decodes the first 100 ms on the calling
+  thread, so the stream has sound from its first block.
+- **A file at another rate is converted as it plays,** by the same curve clips are converted with. A 44.1 kHz file
+  plays at the right pitch and speed on a 48 kHz device.
+- `OpenStream(byte[])` takes the file's bytes, as `ReadContent` gives them. `OpenStream(Stream)` reads a file stream as
+  it plays, off the audio thread; a stream that can't seek (an Android asset's) is read into memory first, so that it
+  can loop and play again. The `AudioStream` owns the stream and closes it.
+- Opening a file checks its headers, so a file that isn't Ogg Vorbis throws there. Damage further in throws
+  `InvalidOperationException` (the decoder's exception inside it) from the next `Audio.Update()`, and the stream stops.
+- Decoding costs little: about 270 times real time for 44.1 kHz stereo on a Snapdragon X core, so a stream takes well
+  under 1% of a core.
+- `Dispose` stops a playing stream at once and closes its file. Disposing the engine closes every stream.
+
+The decoder is Loom's own, written from the Vorbis I specification: no native library, the same code on every
+platform, and it allocates nothing once a stream is open. It decodes what every encoder since libvorbis 1.0 writes,
+matching libvorbis to its last bit of 16-bit output (`VorbisDecoderTests`); floor type 0, which nothing has written
+since 2002, throws `NotSupportedException`.
 
 ---
 
@@ -378,14 +417,15 @@ whenever the host pumps it), and it pauses and resumes on request.
 
 An `AudioEngine` also works on its own, over any `IAudioDevice`. `OfflineAudioDevice` renders only when asked, on the
 caller's thread: for tests, for rendering to a file faster than real time, and for a host that pumps audio itself.
-`Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioDuckTests`, `AudioEventQueueTests`, `WavDecoderTests`), and the real
+`Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioDuckTests`, `AudioStreamTests`, `AudioEventQueueTests`,
+`WavDecoderTests`, `VorbisDecoderTests`), and the real
 SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is missing.
 
 ---
 
 ## 8. Not built yet
 
-- Streaming playback (music decoded as it plays) and decoders beyond WAV.
+- Decoders beyond WAV and Ogg Vorbis (FLAC, Opus).
 - 3D positioning.
 - An exclusive-mode WASAPI path below shared mode's 10 ms on Windows.
 

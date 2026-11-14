@@ -61,3 +61,7 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# Audio test fixtures: encoded audio and raw PCM, never line-ending converted
+*.ogg binary
+*.s16 binary

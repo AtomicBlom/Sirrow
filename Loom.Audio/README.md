@@ -81,6 +81,6 @@ and neither side allocates once running (`AudioEngineTests.The_mix_allocates_not
 
 ## What isn't here yet
 
-- Streaming playback (music decoded as it plays) and decoders beyond WAV.
+- Decoders beyond WAV and Ogg Vorbis (FLAC, Opus).
 - 3D positioning.
 - A direct low-latency WASAPI path below the 10 ms shared-mode period on Windows.
