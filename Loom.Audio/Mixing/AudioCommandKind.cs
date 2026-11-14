@@ -19,4 +19,10 @@ internal enum AudioCommandKind : byte
 	VoicePan,
 	/// <summary>Fade voice <see cref="AudioCommand.Index"/> out over <see cref="AudioCommand.Frames"/>, then end it.</summary>
 	StopVoice,
+	/// <summary>Duck <see cref="AudioCommand.Index"/> now exists, as the <see cref="DuckSettings"/> in <see cref="AudioCommand.Payload"/> say.</summary>
+	AddDuck,
+	/// <summary>Duck <see cref="AudioCommand.Index"/> works when A is 1, and lets its target back up when A is 0.</summary>
+	DuckEnabled,
+	/// <summary>Move the output's gain, after the master bus, to A over <see cref="AudioCommand.Frames"/>.</summary>
+	OutputVolume,
 }

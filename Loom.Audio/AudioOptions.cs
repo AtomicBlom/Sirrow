@@ -28,6 +28,16 @@ public sealed class AudioOptions
 	/// <summary>How many buses the engine can hold, the master bus included. Default 16.</summary>
 	public int MaxBuses { get; set; } = 16;
 
+	/// <summary>How many ducks (<see cref="AudioEngine.AddDuck(AudioBus, AudioBus, float, float, float, float, float)"/>) the engine can hold. Default 8.</summary>
+	public int MaxDucks { get; set; } = 8;
+
+	/// <summary>
+	/// The output's volume while the app is out of focus (another window in front, the browser tab hidden): a linear gain
+	/// the whole mix fades to, then back from on return, over a quarter of a second. 1 (the default) keeps playing as is; 0
+	/// silences the app. The volumes the game sets, the master bus's included, are left alone.
+	/// </summary>
+	public float UnfocusedVolume { get; set; } = 1f;
+
 	/// <summary>
 	/// How many commands (plays, stops, volume changes) the game can have waiting for the audio thread at once. The audio
 	/// thread takes them every few milliseconds, so the default of 4096 is only reached by a game sending thousands in

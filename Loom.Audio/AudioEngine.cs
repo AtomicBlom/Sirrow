@@ -46,6 +46,10 @@ public sealed class AudioEngine : IDisposable
 	private readonly string[] _busNames;
 	private readonly float[] _busVolumes;
 	private int _busCount = 1;
+	private readonly int[] _busParents;
+	private readonly bool[] _duckEnabled;
+	private int _duckCount;
+	private readonly float _unfocusedVolume;
 	private bool _disposed;
 
 	/// <summary>An engine playing through <paramref name="device"/>, which it starts and from then on owns (disposing it with itself).</summary>
@@ -56,6 +60,9 @@ public sealed class AudioEngine : IDisposable
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxVoices, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxBuses, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.CommandCapacity, nameof(options));
+		ArgumentOutOfRangeException.ThrowIfNegative(options.MaxDucks, nameof(options));
+		if (!float.IsFinite(options.UnfocusedVolume) || options.UnfocusedVolume < 0f)
+			throw new ArgumentOutOfRangeException(nameof(options), options.UnfocusedVolume, "AudioOptions.UnfocusedVolume is a linear gain, zero or more.");
 		if (device.SampleRate <= 0)
 			throw new ArgumentException($"The device reports a sample rate of {device.SampleRate}.", nameof(device));
 
@@ -78,7 +85,11 @@ public sealed class AudioEngine : IDisposable
 		_busNames[0] = "master";
 		_busVolumes[0] = 1f;
 
-		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, _commands, _ended);
+		_busParents = new int[options.MaxBuses];
+		_duckEnabled = new bool[options.MaxDucks];
+		_unfocusedVolume = options.UnfocusedVolume;
+
+		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, options.MaxDucks, _commands, _ended);
 		device.Start(_mixer);
 	}
 
@@ -117,6 +128,7 @@ public sealed class AudioEngine : IDisposable
 		Send(new AudioCommand { Kind = AudioCommandKind.AddBus, Index = index, Bus = parent.Index });
 		_busCount++;
 		_busNames[index] = name;
+		_busParents[index] = parent.Index;
 		_busVolumes[index] = 1f;
 		return new AudioBus(index);
 	}
@@ -146,6 +158,89 @@ public sealed class AudioEngine : IDisposable
 		CheckVolume(volume);
 		Send(new AudioCommand { Kind = AudioCommandKind.BusVolume, Index = bus.Index, A = volume, Frames = FramesFor(fadeSeconds) });
 		_busVolumes[bus.Index] = volume;
+	}
+
+	/// <summary>
+	/// Turns <paramref name="target"/> down while <paramref name="trigger"/> has sound on it: music under dialogue, ambience
+	/// under a cutscene's sound. The duck follows the trigger's level, not just whether a voice is playing on it, so the
+	/// target comes back up in a pause, after <paramref name="holdSeconds"/>. Make ducks at load, like buses: there are at most
+	/// <see cref="AudioOptions.MaxDucks"/>, and none is removed (<see cref="SetDuckEnabled"/> turns one off). A bus several ducks
+	/// turn down takes all their depths.
+	/// </summary>
+	/// <param name="trigger">The bus listened to: its level after its own volume.</param>
+	/// <param name="target">The bus turned down. It can't be the trigger, nor a bus the trigger mixes into, which would turn the trigger down with it.</param>
+	/// <param name="depthDb">How far down the target goes, in decibels: below zero (-6 halves it, -12 is a quarter).</param>
+	/// <param name="attackSeconds">How long the target takes to go all the way down.</param>
+	/// <param name="releaseSeconds">How long it takes to come all the way back.</param>
+	/// <param name="thresholdDb">The trigger's level, in decibels of full scale, above which it counts as sounding.</param>
+	/// <param name="holdSeconds">How long the target stays down after the trigger falls below the threshold.</param>
+	public AudioDuck AddDuck(AudioBus trigger, AudioBus target, float depthDb, float attackSeconds = 0.05f, float releaseSeconds = 0.4f,
+		float thresholdDb = -40f, float holdSeconds = 0.15f)
+	{
+		CheckThread();
+		CheckBus(trigger);
+		CheckBus(target);
+		if (trigger == target)
+			throw new ArgumentException("A bus can't duck itself.", nameof(target));
+		if (Contains(target.Index, trigger.Index))
+			throw new ArgumentException(
+				$"'{_busNames[trigger.Index]}' is mixed into '{_busNames[target.Index]}', so ducking it would turn the trigger down too.", nameof(target));
+		if (Contains(trigger.Index, target.Index))
+			throw new ArgumentException(
+				$"'{_busNames[target.Index]}' is mixed into '{_busNames[trigger.Index]}', so ducking it would lower the trigger's level and let the duck go: it would pump.", nameof(target));
+		if (!float.IsFinite(depthDb) || depthDb >= 0f)
+			throw new ArgumentOutOfRangeException(nameof(depthDb), depthDb, "A duck's depth is below zero decibels: how far the target goes down.");
+		if (!float.IsFinite(thresholdDb))
+			throw new ArgumentOutOfRangeException(nameof(thresholdDb), thresholdDb, "A threshold is a level in decibels of full scale, such as -40.");
+		var attack = FramesFor(attackSeconds);
+		var release = FramesFor(releaseSeconds);
+		var hold = FramesFor(holdSeconds);
+		if (_duckCount == _duckEnabled.Length)
+			throw new InvalidOperationException($"The engine already holds its {_duckEnabled.Length} ducks: raise AudioOptions.MaxDucks for more.");
+
+		var index = _duckCount;
+		var settings = new DuckSettings(
+			trigger.Index,
+			target.Index,
+			depthDb,
+			MathF.Pow(10f, thresholdDb / 20f),
+			attack > 0 ? -depthDb / attack : float.PositiveInfinity,
+			release > 0 ? -depthDb / release : float.PositiveInfinity,
+			hold);
+		Send(new AudioCommand { Kind = AudioCommandKind.AddDuck, Index = index, Payload = settings });
+		_duckCount++;
+		_duckEnabled[index] = true;
+		return new AudioDuck(index);
+	}
+
+	/// <summary>
+	/// Turns <paramref name="duck"/> on or off. Off, its target comes back up at the duck's release rate however loud the
+	/// trigger is; on again, it ducks from the next block the trigger is heard.
+	/// </summary>
+	public void SetDuckEnabled(AudioDuck duck, bool enabled)
+	{
+		CheckThread();
+		CheckDuck(duck);
+		Send(new AudioCommand { Kind = AudioCommandKind.DuckEnabled, Index = duck.Index, A = enabled ? 1f : 0f });
+		_duckEnabled[duck.Index] = enabled;
+	}
+
+	/// <summary>Whether <paramref name="duck"/> is on, as last set.</summary>
+	public bool IsDuckEnabled(AudioDuck duck)
+	{
+		CheckDuck(duck);
+		return _duckEnabled[duck.Index];
+	}
+
+	/// <summary>
+	/// Tells the engine whether the app has focus: out of it, the whole output fades to <see cref="AudioOptions.UnfocusedVolume"/>
+	/// over a quarter of a second, and back on return. A <c>LoomApplication</c> calls it as its window or tab gains and loses
+	/// focus; the game's own volumes are untouched.
+	/// </summary>
+	public void SetFocused(bool focused)
+	{
+		CheckThread();
+		Send(new AudioCommand { Kind = AudioCommandKind.OutputVolume, A = focused ? 1f : _unfocusedVolume, Frames = FramesFor(0.25f) });
 	}
 
 	/// <summary>
@@ -401,6 +496,21 @@ public sealed class AudioEngine : IDisposable
 	{
 		if ((uint)bus.Index >= (uint)_busCount)
 			throw new ArgumentOutOfRangeException(nameof(bus), bus.Index, "No such bus in this engine.");
+	}
+
+	private void CheckDuck(AudioDuck duck)
+	{
+		if ((uint)duck.Index >= (uint)_duckCount)
+			throw new ArgumentOutOfRangeException(nameof(duck), duck.Index, "No such duck in this engine.");
+	}
+
+	// Whether `bus` is mixed, directly or through other buses, into `ancestor`
+	private bool Contains(int ancestor, int bus)
+	{
+		for (; bus != 0; bus = _busParents[bus])
+			if (_busParents[bus] == ancestor)
+				return true;
+		return false;
 	}
 
 	private static void CheckVolume(float volume)

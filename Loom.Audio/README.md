@@ -82,5 +82,5 @@ and neither side allocates once running (`AudioEngineTests.The_mix_allocates_not
 ## What isn't here yet
 
 - Streaming playback (music decoded as it plays) and decoders beyond WAV.
-- Ducking (one bus turning another down) and 3D positioning.
+- 3D positioning.
 - A direct low-latency WASAPI path below the 10 ms shared-mode period on Windows.
