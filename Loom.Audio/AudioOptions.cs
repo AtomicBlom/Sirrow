@@ -39,6 +39,12 @@ public sealed class AudioOptions
 	public float UnfocusedVolume { get; set; } = 1f;
 
 	/// <summary>
+	/// The speed of sound in the game's units a second, for the Doppler shift of 3D voices. Default 343, for a game whose
+	/// unit is the metre: set it to 1125 for feet, or to whatever makes the game's shifts feel right.
+	/// </summary>
+	public float SpeedOfSound { get; set; } = 343f;
+
+	/// <summary>
 	/// How many commands (plays, stops, volume changes) the game can have waiting for the audio thread at once. The audio
 	/// thread takes them every few milliseconds, so the default of 4096 is only reached by a game sending thousands in
 	/// one frame; past it the engine throws rather than drop one.

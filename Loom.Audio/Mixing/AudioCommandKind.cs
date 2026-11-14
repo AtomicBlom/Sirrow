@@ -25,4 +25,22 @@ internal enum AudioCommandKind : byte
 	DuckEnabled,
 	/// <summary>Move the output's gain, after the master bus, to A over <see cref="AudioCommand.Frames"/>.</summary>
 	OutputVolume,
+	/// <summary>The listener is at (A, B, C).</summary>
+	ListenerPosition,
+	/// <summary>The listener faces (A, B, C), a unit vector.</summary>
+	ListenerForward,
+	/// <summary>The listener's up is (A, B, C), a unit vector.</summary>
+	ListenerUp,
+	/// <summary>The listener moves at (A, B, C) units a second.</summary>
+	ListenerVelocity,
+	/// <summary>
+	/// Voice <see cref="AudioCommand.Index"/>'s 3D settings: minimum distance A, maximum B, rolloff factor C, Doppler factor D,
+	/// rolloff model <see cref="AudioCommand.Frames"/>. Sent before the voice's play, which keeps it when its
+	/// <see cref="AudioCommand.Spatial"/> is set.
+	/// </summary>
+	VoiceSpatial,
+	/// <summary>Voice <see cref="AudioCommand.Index"/> is at (A, B, C). Sent before a 3D play, and after as it moves.</summary>
+	VoicePosition,
+	/// <summary>Voice <see cref="AudioCommand.Index"/> moves at (A, B, C) units a second.</summary>
+	VoiceVelocity,
 }
