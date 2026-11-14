@@ -27,6 +27,9 @@ internal sealed class AudioMixer : IAudioRenderer
 	private readonly Bus[] _buses;
 	private readonly float[] _scratchLeft = new float[BlockFrames];
 	private readonly float[] _scratchRight = new float[BlockFrames];
+	private readonly Duck[] _ducks;
+	private int _duckCount;
+	private GainRamp _output; // after the master bus: the app's focus volume, kept apart from the game's own master volume
 	private int _busCount = 1;
 	private long _frameTime;
 
@@ -40,7 +43,7 @@ internal sealed class AudioMixer : IAudioRenderer
 	/// <summary>The first exception a source threw on the audio thread, for the game thread to throw again.</summary>
 	public Exception? Fault;
 
-	public AudioMixer(int sampleRate, int maxVoices, int maxBuses, AudioEventQueue<AudioCommand> commands, AudioEventQueue<int> ended)
+	public AudioMixer(int sampleRate, int maxVoices, int maxBuses, int maxDucks, AudioEventQueue<AudioCommand> commands, AudioEventQueue<int> ended)
 	{
 		_sampleRate = sampleRate;
 		_commands = commands;
@@ -49,6 +52,8 @@ internal sealed class AudioMixer : IAudioRenderer
 		_buses = new Bus[maxBuses];
 		for (var i = 0; i < maxBuses; i++)
 			_buses[i] = new Bus();
+		_ducks = new Duck[maxDucks];
+		_output.SetNow(1f);
 	}
 
 	public long FramesRendered => Volatile.Read(ref _framesRendered);
@@ -85,6 +90,7 @@ internal sealed class AudioMixer : IAudioRenderer
 	private float RenderBlock(Span<float> output, int n)
 	{
 		TakeCommands();
+		UpdateDucks(n);
 
 		for (var b = 0; b < _busCount; b++)
 		{
@@ -109,14 +115,15 @@ internal sealed class AudioMixer : IAudioRenderer
 		for (var b = _busCount - 1; b > 0; b--)
 		{
 			var bus = _buses[b];
-			ApplyGain(bus, n);
+			FinishBus(bus, n);
 			var parent = _buses[bus.Parent];
 			Add(bus.Left, parent.Left, n);
 			Add(bus.Right, parent.Right, n);
 		}
 
 		var master = _buses[0];
-		ApplyGain(master, n);
+		FinishBus(master, n);
+		Ramp(master.Left, master.Right, ref _output, n);
 		var peak = 0f;
 		for (var i = 0; i < n; i++)
 		{
@@ -182,6 +189,18 @@ internal sealed class AudioMixer : IAudioRenderer
 						stopped.Stopping = true;
 						stopped.Volume.Set(0f, command.Frames);
 					}
+					break;
+				case AudioCommandKind.AddDuck:
+					var settings = (DuckSettings)command.Payload!;
+					_ducks[command.Index] = new Duck { Settings = settings, Enabled = true };
+					_buses[settings.Trigger].IsTrigger = true;
+					_duckCount = Math.Max(_duckCount, command.Index + 1);
+					break;
+				case AudioCommandKind.DuckEnabled:
+					_ducks[command.Index].Enabled = command.A != 0f;
+					break;
+				case AudioCommandKind.OutputVolume:
+					_output.Set(command.A, command.Frames);
 					break;
 				default:
 					throw new InvalidOperationException($"Unknown audio command {command.Kind}.");
@@ -297,18 +316,64 @@ internal sealed class AudioMixer : IAudioRenderer
 	private static (float Left, float Right) Balance(float volume, float pan) =>
 		(volume * MathF.Min(1f, 1f - pan), volume * MathF.Min(1f, 1f + pan));
 
-	private static void ApplyGain(Bus bus, int n)
+	// Each duck moves its depth toward full while its trigger bus was heard in the last block (or within the hold after), and
+	// back toward 0 dB otherwise, at its attack and release rates; a bus several ducks turn down takes all their gains. The
+	// levels are the last block's, so the order the buses were made in doesn't matter, for one block's delay (a few ms)
+	// against attacks of tens of milliseconds
+	private void UpdateDucks(int n)
 	{
-		var g0 = bus.Volume.Current;
-		var g1 = bus.Volume.Advance(n);
+		for (var b = 0; b < _busCount; b++)
+		{
+			var bus = _buses[b];
+			bus.DuckFrom = bus.DuckTo;
+			bus.DuckTo = 1f;
+		}
+		for (var d = 0; d < _duckCount; d++)
+		{
+			ref var duck = ref _ducks[d];
+			var settings = duck.Settings!;
+			var heard = duck.Enabled && _buses[settings.Trigger].Level > settings.Threshold;
+			duck.HoldLeft = heard ? settings.HoldFrames : Math.Max(0, duck.HoldLeft - n);
+			var depth = heard || (duck.Enabled && duck.HoldLeft > 0) ? settings.DepthDb : 0f;
+			duck.Db = depth < duck.Db
+				? MathF.Max(depth, duck.Db - settings.AttackDbPerFrame * n)
+				: MathF.Min(depth, duck.Db + settings.ReleaseDbPerFrame * n);
+			if (duck.Db < 0f)
+				_buses[settings.Target].DuckTo *= MathF.Pow(10f, duck.Db / 20f);
+		}
+	}
+
+	// A bus whose voices and children are all in: its volume, its level (if a duck listens to it), then its ducks. The level
+	// is taken before the ducks, so two buses ducking each other don't hold each other down
+	private static void FinishBus(Bus bus, int n)
+	{
+		Ramp(bus.Left, bus.Right, ref bus.Volume, n);
+		if (bus.IsTrigger)
+		{
+			var level = 0f;
+			for (var i = 0; i < n; i++)
+				level = MathF.Max(level, MathF.Max(MathF.Abs(bus.Left[i]), MathF.Abs(bus.Right[i])));
+			bus.Level = level;
+		}
+		Ramp(bus.Left, bus.Right, bus.DuckFrom, bus.DuckTo, n);
+	}
+
+	private static void Ramp(float[] left, float[] right, ref GainRamp gain, int n)
+	{
+		var g0 = gain.Current;
+		Ramp(left, right, g0, gain.Advance(n), n);
+	}
+
+	private static void Ramp(float[] left, float[] right, float g0, float g1, int n)
+	{
 		if (g0 == 1f && g1 == 1f)
 			return;
 		var dg = (g1 - g0) / n;
 		for (var i = 0; i < n; i++)
 		{
 			var g = g0 + dg * i;
-			bus.Left[i] *= g;
-			bus.Right[i] *= g;
+			left[i] *= g;
+			right[i] *= g;
 		}
 	}
 
@@ -349,6 +414,10 @@ internal sealed class AudioMixer : IAudioRenderer
 		public readonly float[] Right = new float[BlockFrames];
 		public int Parent;
 		public GainRamp Volume = InitialVolume();
+		public bool IsTrigger;    // a duck listens to it, so its level is taken
+		public float Level;       // its last block's peak, after its volume, before its ducks
+		public float DuckFrom = 1f;
+		public float DuckTo = 1f; // the gain its ducks ramp it across the block, from DuckFrom
 
 		private static GainRamp InitialVolume()
 		{
@@ -356,5 +425,13 @@ internal sealed class AudioMixer : IAudioRenderer
 			ramp.SetNow(1f);
 			return ramp;
 		}
+	}
+
+	private struct Duck
+	{
+		public DuckSettings? Settings;
+		public bool Enabled;
+		public int HoldLeft;
+		public float Db; // how far down it has the target now: 0 to Settings.DepthDb
 	}
 }

@@ -253,6 +253,7 @@ public class AudioEngineTests
 		var (engine, device) = Make();
 		var sfx = engine.CreateBus("sfx");
 		var music = engine.CreateBus("music");
+		var duck = engine.AddDuck(sfx, music, depthDb: -9f, attackSeconds: 0.01f, releaseSeconds: 0.05f);
 		var loop = engine.Play(Constant(engine, 0.2f, 777, channels: 2), music, pitch: 1.37f, loop: true);
 		var source = new ConstantSource(0.1f, frames: int.MaxValue);
 		engine.Play(source, music);
@@ -264,6 +265,10 @@ public class AudioEngineTests
 			engine.SetVolume(loop, 0.5f + (i % 2) * 0.25f, fadeSeconds: 0.01f);
 			engine.SetPan(loop, (i % 3 - 1) * 0.5f);
 			engine.SetBusVolume(sfx, i % 2 == 0 ? 1f : 0.8f);
+			if (i % 16 == 0)
+				engine.SetDuckEnabled(duck, i % 32 == 0);
+			if (i % 24 == 0)
+				engine.SetFocused(i % 48 != 0);
 			var hit = engine.Play(shot, sfx, pitch: 0.9f + (i % 5) * 0.05f, pan: -0.3f);
 			device.Render(output);
 			if (i % 4 == 0)

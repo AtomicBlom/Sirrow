@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 
 using Loom.Audio.Decoding;
+using Loom.Audio.Decoding.Vorbis;
 using Loom.Audio.Mixing;
 
 namespace Loom.Audio;
@@ -46,6 +47,15 @@ public sealed class AudioEngine : IDisposable
 	private readonly string[] _busNames;
 	private readonly float[] _busVolumes;
 	private int _busCount = 1;
+	private readonly int[] _busParents;
+	private readonly bool[] _duckEnabled;
+	private int _duckCount;
+	private readonly float _unfocusedVolume;
+	// Open streams, replaced whole as they open and close, and what keeps their rings topped up: a thread of their own, or
+	// in the browser (where the mix itself runs on the frame thread) Update
+	private AudioStream[] _streams = [];
+	private AudioStreamer? _streamer;
+	private readonly bool _pumpStreams = OperatingSystem.IsBrowser();
 	private bool _disposed;
 
 	/// <summary>An engine playing through <paramref name="device"/>, which it starts and from then on owns (disposing it with itself).</summary>
@@ -56,6 +66,9 @@ public sealed class AudioEngine : IDisposable
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxVoices, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxBuses, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.CommandCapacity, nameof(options));
+		ArgumentOutOfRangeException.ThrowIfNegative(options.MaxDucks, nameof(options));
+		if (!float.IsFinite(options.UnfocusedVolume) || options.UnfocusedVolume < 0f)
+			throw new ArgumentOutOfRangeException(nameof(options), options.UnfocusedVolume, "AudioOptions.UnfocusedVolume is a linear gain, zero or more.");
 		if (device.SampleRate <= 0)
 			throw new ArgumentException($"The device reports a sample rate of {device.SampleRate}.", nameof(device));
 
@@ -78,7 +91,11 @@ public sealed class AudioEngine : IDisposable
 		_busNames[0] = "master";
 		_busVolumes[0] = 1f;
 
-		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, _commands, _ended);
+		_busParents = new int[options.MaxBuses];
+		_duckEnabled = new bool[options.MaxDucks];
+		_unfocusedVolume = options.UnfocusedVolume;
+
+		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, options.MaxDucks, _commands, _ended);
 		device.Start(_mixer);
 	}
 
@@ -117,6 +134,7 @@ public sealed class AudioEngine : IDisposable
 		Send(new AudioCommand { Kind = AudioCommandKind.AddBus, Index = index, Bus = parent.Index });
 		_busCount++;
 		_busNames[index] = name;
+		_busParents[index] = parent.Index;
 		_busVolumes[index] = 1f;
 		return new AudioBus(index);
 	}
@@ -146,6 +164,89 @@ public sealed class AudioEngine : IDisposable
 		CheckVolume(volume);
 		Send(new AudioCommand { Kind = AudioCommandKind.BusVolume, Index = bus.Index, A = volume, Frames = FramesFor(fadeSeconds) });
 		_busVolumes[bus.Index] = volume;
+	}
+
+	/// <summary>
+	/// Turns <paramref name="target"/> down while <paramref name="trigger"/> has sound on it: music under dialogue, ambience
+	/// under a cutscene's sound. The duck follows the trigger's level, not just whether a voice is playing on it, so the
+	/// target comes back up in a pause, after <paramref name="holdSeconds"/>. Make ducks at load, like buses: there are at most
+	/// <see cref="AudioOptions.MaxDucks"/>, and none is removed (<see cref="SetDuckEnabled"/> turns one off). A bus several ducks
+	/// turn down takes all their depths.
+	/// </summary>
+	/// <param name="trigger">The bus listened to: its level after its own volume.</param>
+	/// <param name="target">The bus turned down. It can't be the trigger, nor a bus the trigger mixes into, which would turn the trigger down with it.</param>
+	/// <param name="depthDb">How far down the target goes, in decibels: below zero (-6 halves it, -12 is a quarter).</param>
+	/// <param name="attackSeconds">How long the target takes to go all the way down.</param>
+	/// <param name="releaseSeconds">How long it takes to come all the way back.</param>
+	/// <param name="thresholdDb">The trigger's level, in decibels of full scale, above which it counts as sounding.</param>
+	/// <param name="holdSeconds">How long the target stays down after the trigger falls below the threshold.</param>
+	public AudioDuck AddDuck(AudioBus trigger, AudioBus target, float depthDb, float attackSeconds = 0.05f, float releaseSeconds = 0.4f,
+		float thresholdDb = -40f, float holdSeconds = 0.15f)
+	{
+		CheckThread();
+		CheckBus(trigger);
+		CheckBus(target);
+		if (trigger == target)
+			throw new ArgumentException("A bus can't duck itself.", nameof(target));
+		if (Contains(target.Index, trigger.Index))
+			throw new ArgumentException(
+				$"'{_busNames[trigger.Index]}' is mixed into '{_busNames[target.Index]}', so ducking it would turn the trigger down too.", nameof(target));
+		if (Contains(trigger.Index, target.Index))
+			throw new ArgumentException(
+				$"'{_busNames[target.Index]}' is mixed into '{_busNames[trigger.Index]}', so ducking it would lower the trigger's level and let the duck go: it would pump.", nameof(target));
+		if (!float.IsFinite(depthDb) || depthDb >= 0f)
+			throw new ArgumentOutOfRangeException(nameof(depthDb), depthDb, "A duck's depth is below zero decibels: how far the target goes down.");
+		if (!float.IsFinite(thresholdDb))
+			throw new ArgumentOutOfRangeException(nameof(thresholdDb), thresholdDb, "A threshold is a level in decibels of full scale, such as -40.");
+		var attack = FramesFor(attackSeconds);
+		var release = FramesFor(releaseSeconds);
+		var hold = FramesFor(holdSeconds);
+		if (_duckCount == _duckEnabled.Length)
+			throw new InvalidOperationException($"The engine already holds its {_duckEnabled.Length} ducks: raise AudioOptions.MaxDucks for more.");
+
+		var index = _duckCount;
+		var settings = new DuckSettings(
+			trigger.Index,
+			target.Index,
+			depthDb,
+			MathF.Pow(10f, thresholdDb / 20f),
+			attack > 0 ? -depthDb / attack : float.PositiveInfinity,
+			release > 0 ? -depthDb / release : float.PositiveInfinity,
+			hold);
+		Send(new AudioCommand { Kind = AudioCommandKind.AddDuck, Index = index, Payload = settings });
+		_duckCount++;
+		_duckEnabled[index] = true;
+		return new AudioDuck(index);
+	}
+
+	/// <summary>
+	/// Turns <paramref name="duck"/> on or off. Off, its target comes back up at the duck's release rate however loud the
+	/// trigger is; on again, it ducks from the next block the trigger is heard.
+	/// </summary>
+	public void SetDuckEnabled(AudioDuck duck, bool enabled)
+	{
+		CheckThread();
+		CheckDuck(duck);
+		Send(new AudioCommand { Kind = AudioCommandKind.DuckEnabled, Index = duck.Index, A = enabled ? 1f : 0f });
+		_duckEnabled[duck.Index] = enabled;
+	}
+
+	/// <summary>Whether <paramref name="duck"/> is on, as last set.</summary>
+	public bool IsDuckEnabled(AudioDuck duck)
+	{
+		CheckDuck(duck);
+		return _duckEnabled[duck.Index];
+	}
+
+	/// <summary>
+	/// Tells the engine whether the app has focus: out of it, the whole output fades to <see cref="AudioOptions.UnfocusedVolume"/>
+	/// over a quarter of a second, and back on return. A <c>LoomApplication</c> calls it as its window or tab gains and loses
+	/// focus; the game's own volumes are untouched.
+	/// </summary>
+	public void SetFocused(bool focused)
+	{
+		CheckThread();
+		Send(new AudioCommand { Kind = AudioCommandKind.OutputVolume, A = focused ? 1f : _unfocusedVolume, Frames = FramesFor(0.25f) });
 	}
 
 	/// <summary>
@@ -288,14 +389,116 @@ public sealed class AudioEngine : IDisposable
 	}
 
 	/// <summary>
-	/// Hears from the audio thread: frees the voices that have ended, and throws what a source threw there. A
-	/// <c>LoomApplication</c> calls it once a frame; an engine used on its own should too.
+	/// A clip of an Ogg Vorbis file's contents, decoded whole and converted to the engine's rate: for sound effects and
+	/// short loops. Music is better streamed (<see cref="OpenStream(byte[], bool)"/>), which holds only the compressed file.
+	/// Any thread may call it.
 	/// </summary>
-	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> threw on the audio thread (the inner exception); its voice was stopped.</exception>
+	/// <exception cref="InvalidDataException">The bytes aren't Ogg Vorbis, or are damaged.</exception>
+	/// <exception cref="NotSupportedException">The file has more than two channels.</exception>
+	public AudioClip LoadOgg(ReadOnlySpan<byte> ogg)
+	{
+		var decoder = new VorbisDecoder(new MemoryStream(ogg.ToArray(), writable: false));
+		CheckStreamChannels(decoder);
+		var samples = new float[decoder.SampleRate * decoder.Channels];
+		var count = 0;
+		while (true)
+		{
+			if (count == samples.Length)
+				Array.Resize(ref samples, samples.Length * 2);
+			var frames = decoder.Read(samples.AsSpan(count));
+			if (frames == 0)
+				break;
+			count += frames * decoder.Channels;
+		}
+		return ClipFactory.Create(samples.AsSpan(0, count), decoder.Channels, decoder.SampleRate, SampleRate);
+	}
+
+	/// <summary>
+	/// Opens an Ogg Vorbis file to stream: decoded as it plays, holding only the compressed bytes. Play it as any source,
+	/// with <see cref="Play(AudioSource, AudioBus, float, float)"/>; each play starts from the beginning. Dispose it when done.
+	/// </summary>
+	/// <param name="ogg">The file's bytes, as <c>ReadContent</c> gives them.</param>
+	/// <param name="loop">Whether it starts over at its end, without a gap, until stopped.</param>
+	/// <exception cref="InvalidDataException">The bytes aren't Ogg Vorbis, or are damaged.</exception>
+	/// <exception cref="NotSupportedException">The file has more than two channels.</exception>
+	public AudioStream OpenStream(byte[] ogg, bool loop = false)
+	{
+		ArgumentNullException.ThrowIfNull(ogg);
+		return OpenStream(new MemoryStream(ogg, writable: false), loop);
+	}
+
+	/// <summary>
+	/// Opens an Ogg Vorbis file to stream from <paramref name="ogg"/>, which the stream then owns and closes. A file stream is
+	/// read as it plays, off the audio thread; a stream that can't seek (an Android asset's) is read into memory first, so
+	/// it can loop and play again.
+	/// </summary>
+	/// <inheritdoc cref="OpenStream(byte[], bool)"/>
+	public AudioStream OpenStream(Stream ogg, bool loop = false)
+	{
+		CheckThread();
+		ArgumentNullException.ThrowIfNull(ogg);
+		if (!ogg.CanSeek)
+		{
+			var copy = new MemoryStream();
+			using (ogg)
+				ogg.CopyTo(copy);
+			copy.Position = 0;
+			ogg = copy;
+		}
+
+		VorbisDecoder decoder;
+		try
+		{
+			decoder = new VorbisDecoder(ogg);
+			CheckStreamChannels(decoder);
+		}
+		catch
+		{
+			ogg.Dispose();
+			throw;
+		}
+		var stream = new AudioStream(this, ogg, decoder, loop);
+		_streams = [.. _streams, stream];
+		if (!_pumpStreams)
+		{
+			_streamer ??= new AudioStreamer();
+			_streamer.SetStreams(_streams);
+		}
+		return stream;
+	}
+
+	// A stream disposing: its voice stopped, and no more decoding for it
+	internal void Close(AudioStream stream)
+	{
+		CheckThread();
+		Stop(stream);
+		_streams = Array.FindAll(_streams, s => s != stream);
+		_streamer?.SetStreams(_streams);
+	}
+
+	private static void CheckStreamChannels(VorbisDecoder decoder)
+	{
+		if (decoder.Channels > 2)
+			throw new NotSupportedException($"The file has {decoder.Channels} channels: the engine plays mono and stereo.");
+	}
+
+	/// <summary>
+	/// Hears from the audio thread: frees the voices that have ended, and throws what a source threw there or a stream's
+	/// decoding threw. In the browser it also decodes ahead for the streams. A <c>LoomApplication</c> calls it once a frame;
+	/// an engine used on its own should too.
+	/// </summary>
+	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> threw on the audio thread, or an <see cref="AudioStream"/>'s file failed to decode (the inner exception); its voice was stopped.</exception>
 	public void Update()
 	{
 		CheckThread();
 		TakeEnded();
+		foreach (var stream in _streams)
+		{
+			if (_pumpStreams)
+				stream.Fill(int.MaxValue);
+			if (stream.TakeFault() is { } failed)
+				throw new InvalidOperationException($"An audio stream failed to decode, and stopped: {failed.Message}", failed);
+		}
 		if (Interlocked.Exchange(ref _mixer.Fault, null) is { } fault)
 			throw new InvalidOperationException($"An audio source threw on the audio thread, and its voice was stopped: {fault.Message}", fault);
 	}
@@ -314,13 +517,17 @@ public sealed class AudioEngine : IDisposable
 		Device.Resume();
 	}
 
-	/// <summary>Stops and closes the device.</summary>
+	/// <summary>Stops and closes the device, and closes every open stream.</summary>
 	public void Dispose()
 	{
 		if (_disposed)
 			return;
 		_disposed = true;
 		Device.Dispose();
+		_streamer?.Dispose();
+		foreach (var stream in _streams)
+			stream.Close();
+		_streams = [];
 	}
 
 	private bool IsLive(VoiceHandle voice) =>
@@ -401,6 +608,21 @@ public sealed class AudioEngine : IDisposable
 	{
 		if ((uint)bus.Index >= (uint)_busCount)
 			throw new ArgumentOutOfRangeException(nameof(bus), bus.Index, "No such bus in this engine.");
+	}
+
+	private void CheckDuck(AudioDuck duck)
+	{
+		if ((uint)duck.Index >= (uint)_duckCount)
+			throw new ArgumentOutOfRangeException(nameof(duck), duck.Index, "No such duck in this engine.");
+	}
+
+	// Whether `bus` is mixed, directly or through other buses, into `ancestor`
+	private bool Contains(int ancestor, int bus)
+	{
+		for (; bus != 0; bus = _busParents[bus])
+			if (_busParents[bus] == ancestor)
+				return true;
+		return false;
 	}
 
 	private static void CheckVolume(float volume)

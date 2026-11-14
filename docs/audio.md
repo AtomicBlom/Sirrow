@@ -53,6 +53,7 @@ sealed class MyGame : LoomApplication
 | Before `LoadContent` | The host opens its output device and the app's `AudioEngine` starts it. The log names the backend, the output, the rate and the buffer granted. |
 | Every tick, after `Update` and `BeforeRender` | `Audio.Update()`: frees the voices that ended and throws what a source threw on the audio thread. |
 | `OnSuspending` / `OnResumed` | The device pauses after `OnSuspending` and resumes before `OnResumed`. Voices hold where they are. |
+| The window or tab loses or regains focus | `Audio.SetFocused`, before `OnFocusChanged`: the output fades to `AudioOptions.UnfocusedVolume` and back (see below). |
 | After `UnloadContent` | The engine closes the device. |
 
 With `AppOptions.Audio` left null, audio is off and reading `Audio` throws.
@@ -67,6 +68,8 @@ Every value is a request the platform meets as closely as it can. `Audio.Device`
 | `BufferFrames` | 0 (the smallest the backend offers) | The device buffer, which is the latency the mixer adds. Raise it only if the output crackles on a slow device. In the browser it is the lead ahead of the speaker. |
 | `MaxVoices` | 64 | Voices playing at once, clips and sources together. A play past it is dropped (see [Voices](#3-voices)). |
 | `MaxBuses` | 16 | Buses, the master bus included. |
+| `MaxDucks` | 8 | Ducks (see [Ducking](#ducking)). |
+| `UnfocusedVolume` | 1 (no change) | The output's volume while the app is out of focus: another window in front, the browser tab hidden, the app behind another on Android. The whole mix fades to it over a quarter second and back on return. 0 silences an app in the background. It is a gain of its own after the master bus, so the game's volumes, the master's included, are left alone. |
 | `CommandCapacity` | 4096 | Commands (plays, stops, volume changes) waiting for the audio thread at once. Past it the engine throws rather than drop one. |
 
 ### No output
@@ -84,17 +87,56 @@ A clip is sound decoded into memory, ready to play any number of times at once: 
 
 ```csharp
 var hit = Audio.LoadWav(ReadContent("sounds/hit.wav"));            // a WAV file's bytes
+var step = Audio.LoadOgg(ReadContent("sounds/step.ogg"));          // an Ogg Vorbis file's bytes
 var beep = Audio.CreateClip(samples, channels: 1, sampleRate: 44_100); // samples the app made, -1..1
 ```
 
 - `LoadWav` reads RIFF/WAVE files: PCM at 8, 16, 24 or 32 bits, and IEEE float at 32 or 64, mono or stereo
   (`WAVE_FORMAT_EXTENSIBLE` included). Any other format throws `NotSupportedException`, and bytes that aren't a WAV
   file throw `InvalidDataException`.
+- `LoadOgg` decodes an Ogg Vorbis file whole, mono or stereo. A file with more channels throws
+  `NotSupportedException`, and bytes that aren't Ogg Vorbis, or are damaged, throw `InvalidDataException`. For music,
+  stream instead (below): a clip holds every decoded sample, ten times the file's size or more.
 - Both convert the clip to the engine's rate as it loads, so playing it never resamples (a pitch other than 1 aside).
   The conversion is a 4-point Hermite curve, which doesn't filter on the way down: a 96 kHz clip loaded at 48 kHz can
   alias faintly. Supply clips at the engine's rate where that matters.
 - **Any thread may make a clip.** Decode on a loading thread (`ReadContentAsync`) and play on the frame thread.
 - A clip belongs to the engine whose rate it was made at. Playing it on an engine at another rate throws.
+
+### Streams
+
+Music is streamed: decoded as it plays, from an Ogg Vorbis file held compressed. An `AudioStream` is a source, so it
+plays, fades, pans and stops like one.
+
+```csharp
+_theme = Audio.OpenStream(ReadContent("music/theme.ogg"), loop: true);
+Audio.Play(_theme, music);
+// ... later
+Audio.Stop(_theme, fadeSeconds: 2f);
+_theme.Dispose(); // once it has faded, or when the game is done with it
+```
+
+- **Each play starts from the beginning.** A looping stream joins its end to its start without a gap, to the sample:
+  the file's length is exactly what was encoded (its last page's granule position says so).
+- **Decoding never happens on the audio thread.** A streaming thread of the engine's decodes about half a second
+  ahead into a lock-free ring, waking every 10 ms, and the audio thread reads the ring. In the browser, where the mix
+  runs on the frame thread, `Audio.Update()` decodes ahead instead. A play decodes the first 100 ms on the calling
+  thread, so the stream has sound from its first block.
+- **A file at another rate is converted as it plays,** by the same curve clips are converted with. A 44.1 kHz file
+  plays at the right pitch and speed on a 48 kHz device.
+- `OpenStream(byte[])` takes the file's bytes, as `ReadContent` gives them. `OpenStream(Stream)` reads a file stream as
+  it plays, off the audio thread; a stream that can't seek (an Android asset's) is read into memory first, so that it
+  can loop and play again. The `AudioStream` owns the stream and closes it.
+- Opening a file checks its headers, so a file that isn't Ogg Vorbis throws there. Damage further in throws
+  `InvalidOperationException` (the decoder's exception inside it) from the next `Audio.Update()`, and the stream stops.
+- Decoding costs little: about 270 times real time for 44.1 kHz stereo on a Snapdragon X core, so a stream takes well
+  under 1% of a core.
+- `Dispose` stops a playing stream at once and closes its file. Disposing the engine closes every stream.
+
+The decoder is Loom's own, written from the Vorbis I specification: no native library, the same code on every
+platform, and it allocates nothing once a stream is open. It decodes what every encoder since libvorbis 1.0 writes,
+matching libvorbis to its last bit of 16-bit output (`VorbisDecoderTests`); floor type 0, which nothing has written
+since 2002, throws `NotSupportedException`.
 
 ---
 
@@ -151,6 +193,38 @@ Audio.SetBusVolume(music, 0.3f, fadeSeconds: 1f); // everything in music follows
 - The mix order follows from the tree (children before parents), so an app never orders buses itself.
 - The master bus is clipped to -1..1 on its way to the device. `Stats.Peak` reports the loudest sample before that
   clip, so a peak above 1 means the mix is too loud.
+
+### Ducking
+
+A duck turns one bus down while another has sound on it: music under dialogue, ambience under a cutscene.
+
+```csharp
+var dialogue = Audio.CreateBus("dialogue");
+var music = Audio.CreateBus("music");
+var duck = Audio.AddDuck(trigger: dialogue, target: music, depthDb: -9f, attackSeconds: 0.05f, releaseSeconds: 0.4f);
+
+Audio.SetDuckEnabled(duck, false); // music back up, however loud the dialogue
+```
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `depthDb` | (required) | How far down the target goes, in decibels, below zero: -6 halves it, -12 is a quarter. |
+| `attackSeconds` | 0.05 | How long the target takes to go all the way down. |
+| `releaseSeconds` | 0.4 | How long it takes to come all the way back. |
+| `thresholdDb` | -40 | The trigger's level, in decibels of full scale, above which it counts as sounding. |
+| `holdSeconds` | 0.15 | How long the target stays down after the trigger falls quiet, so it doesn't pump up between words. |
+
+- **A duck follows the trigger's level, not its voices.** The target comes back up in a pause in the dialogue, and a
+  source playing silence ducks nothing. The level is the trigger bus's peak after its own volume, so turning the
+  dialogue bus down to nothing stops it ducking.
+- **The duck acts a block after it hears.** Each block's ducks are worked out from the last block's levels, so the order
+  buses were made in doesn't matter. The block of delay (a few milliseconds) sits inside any attack.
+- A bus several ducks turn down takes all their depths: two -6 dB ducks sounding at once make -12 dB.
+- **A duck can't involve a bus that contains the other.** Ducking a bus the trigger is mixed into (the master, say) would
+  turn the trigger down too, and ducking a bus mixed into the trigger would lower the trigger's level and let the duck
+  go, so it would pump. Both throw.
+- Make ducks at load, like buses. There are at most `AudioOptions.MaxDucks`, and none is removed: `SetDuckEnabled`
+  turns one off, and its target comes back up at its release rate.
 
 ---
 
@@ -343,15 +417,16 @@ whenever the host pumps it), and it pauses and resumes on request.
 
 An `AudioEngine` also works on its own, over any `IAudioDevice`. `OfflineAudioDevice` renders only when asked, on the
 caller's thread: for tests, for rendering to a file faster than real time, and for a host that pumps audio itself.
-`Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioEventQueueTests`, `WavDecoderTests`), and the real
+`Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioDuckTests`, `AudioStreamTests`, `AudioEventQueueTests`,
+`WavDecoderTests`, `VorbisDecoderTests`), and the real
 SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is missing.
 
 ---
 
 ## 8. Not built yet
 
-- Streaming playback (music decoded as it plays) and decoders beyond WAV.
-- Ducking (one bus turning another down) and 3D positioning.
+- Decoders beyond WAV and Ogg Vorbis (FLAC, Opus).
+- 3D positioning.
 - An exclusive-mode WASAPI path below shared mode's 10 ms on Windows.
 
 [`Planning.md` §10](../Planning.md#10-the-audio-track) tracks these.
