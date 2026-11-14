@@ -16,7 +16,11 @@ public abstract class AudioSource
 	/// <summary>The engine slot playing this source, or -1. Game thread only.</summary>
 	internal int VoiceSlot = -1;
 
-	/// <summary>Whether a voice is playing this source, as the game thread last heard from the audio thread.</summary>
+	/// <summary>
+	/// Whether a voice is playing this source, as the game thread last heard from the audio thread: true from its play
+	/// until the engine hears the voice end (at <see cref="AudioEngine.Update"/> or the engine's next play of a
+	/// source), which after a stop is once its fade has been rendered.
+	/// </summary>
 	public bool IsPlaying => VoiceSlot >= 0;
 
 	/// <summary>

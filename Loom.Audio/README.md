@@ -11,6 +11,9 @@ output device behind one seam, `IAudioDevice`:
 | Android (`Loom.Hosting.Android`) | AAudio, low-latency, exclusive where the device allows | AAudio's callback thread | two bursts (4 ms on a Galaxy S23 Ultra's exclusive MMAP path) |
 | Browser (`Loom.Hosting.Web`) | an AudioWorklet | the frame thread, a 50 ms lead ahead of the speaker | the lead, by design: the .NET runtime can't run on the browser's audio thread |
 
+This page is the summary. [The audio guide](https://github.com/AtomicBlom/Loom/blob/master/docs/audio.md) covers the
+whole API, the threading model, and what each platform's device does.
+
 ## Use it from a LoomApplication
 
 ```csharp

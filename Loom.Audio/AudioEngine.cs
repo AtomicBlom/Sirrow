@@ -178,10 +178,15 @@ public sealed class AudioEngine : IDisposable
 	/// Plays <paramref name="source"/> on <paramref name="bus"/>, until it finishes (its <see cref="AudioSource.Render"/>
 	/// returns false) or is stopped. Returns the voice, or <see cref="VoiceHandle.None"/> when every voice is busy.
 	/// </summary>
-	/// <param name="source">A source not already playing.</param>
+	/// <param name="source">
+	/// A source not already playing. One that has finished, or been stopped and faded out, can play again: a stopped source
+	/// keeps playing until the audio thread has rendered its fade, so <see cref="Stop(AudioSource, float)"/> followed at once
+	/// by a play of the same source throws.
+	/// </param>
 	/// <param name="bus">Where the voice is mixed: the master bus by default.</param>
 	/// <param name="volume">A linear gain: 1 plays the source as it renders.</param>
 	/// <param name="pan">-1 full left, 0 centre, 1 full right: a balance, since a source is stereo.</param>
+	/// <exception cref="InvalidOperationException">The source is still playing on a voice, or fading out after a stop.</exception>
 	public VoiceHandle Play(AudioSource source, AudioBus bus = default, float volume = 1f, float pan = 0f)
 	{
 		CheckThread();
@@ -189,8 +194,12 @@ public sealed class AudioEngine : IDisposable
 		CheckBus(bus);
 		CheckVolume(volume);
 		CheckPan(pan);
+		// Hear the voices that ended since the last Update, so a source that finished or faded out since then is free
+		TakeEnded();
 		if (source.IsPlaying)
-			throw new InvalidOperationException("The source is already playing: a source plays on one voice at a time. Stop it first, or make another.");
+			throw new InvalidOperationException(
+				"The source is still playing: a source plays on one voice at a time, and a stopped one plays on until the audio " +
+				"thread has rendered its fade. Play it again once AudioSource.IsPlaying is false, or make another instance.");
 		source.Start(SampleRate);
 		if (!TryTakeVoice(out var slot, out var generation))
 			return VoiceHandle.None;
@@ -245,7 +254,11 @@ public sealed class AudioEngine : IDisposable
 			Send(new AudioCommand { Kind = AudioCommandKind.StopVoice, Index = voice.Slot, Frames = FramesFor(fadeSeconds) });
 	}
 
-	/// <summary>Stops <paramref name="source"/>'s voice, if it is playing (see <see cref="Stop(VoiceHandle, float)"/>).</summary>
+	/// <summary>
+	/// Stops <paramref name="source"/>'s voice, if it is playing (see <see cref="Stop(VoiceHandle, float)"/>). The source stays
+	/// <see cref="AudioSource.IsPlaying"/> until the audio thread has rendered the fade and the engine has heard the voice end,
+	/// at its next <see cref="Update"/> or play of a source; only then can it be played again.
+	/// </summary>
 	public void Stop(AudioSource source, float fadeSeconds = 0f)
 	{
 		ArgumentNullException.ThrowIfNull(source);

@@ -181,6 +181,35 @@ public class AudioEngineTests
 	}
 
 	[Test]
+	public void A_stopped_source_plays_again_once_its_fade_is_rendered()
+	{
+		var (engine, device) = Make();
+		var source = new ConstantSource(0.1f, frames: int.MaxValue);
+		engine.Play(source);
+		Render(device);
+
+		engine.Stop(source);
+		// The audio thread hasn't rendered the fade yet: the voice still plays it
+		Should.Throw<InvalidOperationException>(() => engine.Play(source)).Message.ShouldContain("fade");
+
+		Render(device);
+		engine.Play(source).IsNone.ShouldBeFalse();
+	}
+
+	[Test]
+	public void A_finished_source_plays_again_before_the_engine_updates()
+	{
+		var (engine, device) = Make();
+		var source = new ConstantSource(0.1f, frames: Block / 2);
+		engine.Play(source);
+		Render(device);
+
+		// No Update between: the play hears the voice end itself
+		engine.Play(source).IsNone.ShouldBeFalse();
+		source.IsPlaying.ShouldBeTrue();
+	}
+
+	[Test]
 	public void The_engine_refuses_a_call_from_another_thread()
 	{
 		var (engine, _) = Make();

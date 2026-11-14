@@ -1,0 +1,357 @@
+# Audio
+
+How to make sound in a Loom app: clips played on voices, mixed through buses, and **sources**, sound the game writes
+itself sample by sample (software synthesizers, procedural engine notes, generated music). Then what runs on which
+thread, and what each platform does underneath.
+
+[`Loom.Audio`](../Loom.Audio) holds the mixer and depends only on the BCL, as `Loom.Input` does. Each host opens its
+platform's output device behind one seam, `IAudioDevice`:
+
+| Host | Device | Where the mix runs | Latency the mix adds |
+|---|---|---|---|
+| Desktop (`Loom.Hosting.Desktop`) | SDL 3, the system's default output | SDL's audio thread | one device buffer: 480 frames (10 ms) on Windows, the floor of shared-mode WASAPI |
+| Android (`Loom.Hosting.Android`) | AAudio, low-latency, exclusive where the device allows | AAudio's callback thread | two bursts: 192 frames (4 ms) on a Galaxy S23 Ultra's exclusive MMAP path |
+| Browser (`Loom.Hosting.Web`) | an AudioWorklet | the frame thread, 50 ms ahead of the speaker | the 50 ms lead, by design (see [The browser](#the-browser)) |
+
+`samples/HelloAudio` is a whole app built on all of it: an eight-voice synthesizer played from the keyboard, an
+arpeggiator timed on the audio clock, and a clip fired from the game. It builds as a desktop exe, an Android APK and a
+browser app from the same source.
+
+---
+
+## 1. Turning it on
+
+Set `AppOptions.Audio` in `Configure`, then play through `LoomApplication.Audio`:
+
+```csharp
+sealed class MyGame : LoomApplication
+{
+	private AudioBus _sfx;
+	private AudioClip _hit = null!;
+
+	protected override void Configure(AppOptions options) =>
+		options.Audio = new AudioOptions(); // the device's own rate and its smallest buffer
+
+	protected override void LoadContent()
+	{
+		_sfx = Audio.CreateBus("sfx");
+		_hit = Audio.LoadWav(ReadContent("sounds/hit.wav"));
+	}
+
+	protected override void Update(FrameTime time)
+	{
+		if (Input.Pressed(Key.Space))
+			Audio.Play(_hit, _sfx, volume: 0.8f, pitch: 1.1f, pan: -0.3f);
+	}
+}
+```
+
+`LoomApplication` runs the engine through the app's lifecycle, so an app never opens, pumps or closes it:
+
+| When | What happens |
+|---|---|
+| Before `LoadContent` | The host opens its output device and the app's `AudioEngine` starts it. The log names the backend, the output, the rate and the buffer granted. |
+| Every tick, after `Update` and `BeforeRender` | `Audio.Update()`: frees the voices that ended and throws what a source threw on the audio thread. |
+| `OnSuspending` / `OnResumed` | The device pauses after `OnSuspending` and resumes before `OnResumed`. Voices hold where they are. |
+| After `UnloadContent` | The engine closes the device. |
+
+With `AppOptions.Audio` left null, audio is off and reading `Audio` throws.
+
+### `AudioOptions`
+
+Every value is a request the platform meets as closely as it can. `Audio.Device` says what was granted.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `SampleRate` | 0 (the device's own) | The mixing rate. Any rate but the device's own makes the platform resample, which adds latency. |
+| `BufferFrames` | 0 (the smallest the backend offers) | The device buffer, which is the latency the mixer adds. Raise it only if the output crackles on a slow device. In the browser it is the lead ahead of the speaker. |
+| `MaxVoices` | 64 | Voices playing at once, clips and sources together. A play past it is dropped (see [Voices](#3-voices)). |
+| `MaxBuses` | 16 | Buses, the master bus included. |
+| `CommandCapacity` | 4096 | Commands (plays, stops, volume changes) waiting for the audio thread at once. Past it the engine throws rather than drop one. |
+
+### No output
+
+When a host can't open an output (no device, or SDL3 missing on the desktop), it hands the engine a `NullAudioDevice`
+and logs a warning saying why. A `NullAudioDevice` renders in real time and drops what it renders, so voices still
+advance and end, and a game that waits on a sound finishing behaves as it would with a speaker. A machine with no
+speaker is not a bug in the app, so this is not an error.
+
+---
+
+## 2. Clips
+
+A clip is sound decoded into memory, ready to play any number of times at once: a footstep, a hit, a loop.
+
+```csharp
+var hit = Audio.LoadWav(ReadContent("sounds/hit.wav"));            // a WAV file's bytes
+var beep = Audio.CreateClip(samples, channels: 1, sampleRate: 44_100); // samples the app made, -1..1
+```
+
+- `LoadWav` reads RIFF/WAVE files: PCM at 8, 16, 24 or 32 bits, and IEEE float at 32 or 64, mono or stereo
+  (`WAVE_FORMAT_EXTENSIBLE` included). Any other format throws `NotSupportedException`, and bytes that aren't a WAV
+  file throw `InvalidDataException`.
+- Both convert the clip to the engine's rate as it loads, so playing it never resamples (a pitch other than 1 aside).
+  The conversion is a 4-point Hermite curve, which doesn't filter on the way down: a 96 kHz clip loaded at 48 kHz can
+  alias faintly. Supply clips at the engine's rate where that matters.
+- **Any thread may make a clip.** Decode on a loading thread (`ReadContentAsync`) and play on the frame thread.
+- A clip belongs to the engine whose rate it was made at. Playing it on an engine at another rate throws.
+
+---
+
+## 3. Voices
+
+Every play takes a voice from a fixed pool and returns a `VoiceHandle`:
+
+```csharp
+var engineLoop = Audio.Play(_engineClip, _sfx, loop: true);
+Audio.SetPitch(engineLoop, 0.8f + rpm / 8000f);
+Audio.SetVolume(engineLoop, 0.5f, fadeSeconds: 0.2f);
+Audio.SetPan(engineLoop, -0.4f);
+Audio.Stop(engineLoop, fadeSeconds: 0.5f);
+```
+
+| Member | What it does |
+|---|---|
+| `Play(clip, bus, volume, pitch, pan, loop)` | Plays a clip. `pitch` 2 is an octave up and twice as fast. `pan` runs -1 (left) to 1 (right). A looping clip plays until stopped. |
+| `Play(source, bus, volume, pan)` | Plays a source (see [Sources](#5-sources)) until it finishes or is stopped. |
+| `SetVolume(voice, volume, fadeSeconds)` | Moves a voice's volume, a linear gain. |
+| `SetPitch(voice, pitch)` | A clip voice's pitch. A source voice ignores it. |
+| `SetPan(voice, pan)` | Moves the pan across the next block. |
+| `Stop(voice, fadeSeconds)` / `Stop(source, fadeSeconds)` | Fades the voice out, then ends it. |
+| `IsPlaying(voice)` | Whether the voice still plays, as the frame thread last heard (at most a frame old). |
+
+Things to know:
+
+- **Nothing clicks.** Every change of volume, pan or bus volume ramps across at least one block (256 frames at most,
+  about 5 ms at 48 kHz). A stop with no fade still ramps to silence over one block.
+- **A handle goes stale when its voice ends,** and the engine ignores a stale handle rather than reach the voice that
+  took its slot. A game can keep handles without tracking when each sound finishes.
+- **When every voice is busy, a play is dropped.** It returns `VoiceHandle.None` and adds one to
+  `Stats.DroppedVoices`. Raise `AudioOptions.MaxVoices` if that happens in normal play.
+- A mono clip pans at equal power (-3 dB in each side at the centre). A stereo clip or a source pans as a balance: it
+  keeps its own image and turns down the side it pans away from.
+
+---
+
+## 4. Buses
+
+Buses group voices so they can be set as one: music, sound effects, UI. They form a tree under `Audio.Master`, each
+mixed into its parent.
+
+```csharp
+var music = Audio.CreateBus("music");
+var sfx = Audio.CreateBus("sfx");
+var footsteps = Audio.CreateBus("footsteps", parent: sfx);
+
+Audio.SetBusVolume(music, 0.3f, fadeSeconds: 1f); // everything in music follows it
+```
+
+- Make buses at load. There are at most `AudioOptions.MaxBuses`, and none is ever removed.
+- The engine names only the master bus. Every other bus, and its name, is the app's.
+- The mix order follows from the tree (children before parents), so an app never orders buses itself.
+- The master bus is clipped to -1..1 on its way to the device. `Stats.Peak` reports the loudest sample before that
+  clip, so a peak above 1 means the mix is too loud.
+
+---
+
+## 5. Sources
+
+A source is sound the game writes itself. Subclass `AudioSource`, write `Render`, and play it like a clip:
+
+```csharp
+sealed class Sine : AudioSource
+{
+	public AudioParameter Frequency { get; } = new(440f);
+	private float _phase, _rate;
+
+	// The frame thread, as the source starts playing: size buffers and work out coefficients here
+	protected override void OnStart(int sampleRate) => _rate = sampleRate;
+
+	// The audio thread, once a block
+	protected override bool Render(Span<float> left, Span<float> right, in AudioRenderInfo info)
+	{
+		var frequency = Frequency.Ramp(info.Frames); // glides across the block: no click when it changes
+		for (var i = 0; i < info.Frames; i++)
+		{
+			left[i] = right[i] = 0.2f * MathF.Sin(2 * MathF.PI * _phase);
+			_phase = (_phase + frequency.Next() / _rate) % 1f;
+		}
+		return true; // false ends the voice
+	}
+}
+
+var sine = new Sine();
+Audio.Play(sine, music);
+sine.Frequency.Value = 660f; // from the game, any time
+```
+
+### The rules for `Render`
+
+`Render` runs on the audio thread, once a block of up to 256 frames, against a deadline: a block late is heard as a
+click or a dropout.
+
+- **Don't allocate.** A garbage collection pauses every managed thread, the audio thread included, so an allocation in
+  `Render` is the one thing in the source's control that can stall the mix. Allocate in the constructor or `OnStart`.
+- **Don't lock, block or wait,** and don't call anything that might (I/O, logging, `Console`).
+- The spans arrive zeroed and hold `info.Frames` samples each. Write both, even for a mono sound.
+- Return false once the source has finished. Its voice ends and the source can be played again.
+- **An exception thrown in `Render` stops the voice** and is thrown again on the frame thread from the next
+  `Audio.Update()`, wrapped in an `InvalidOperationException`. The audio thread itself carries on.
+
+`AudioRenderInfo` carries the block's `Frames`, the engine's `SampleRate`, and `FrameTime`: how many frames the engine
+had rendered before this block. `FrameTime` is the audio clock, so a sequencer or arpeggiator counts beats on it and
+stays sample-accurate however the frame rate wanders. It runs only while the device does.
+
+### One voice at a time
+
+A source keeps its own state, so it plays on one voice at a time, and playing it while it plays throws. It counts as
+playing from its `Play` until the engine hears its voice end, which after `Stop` is once the audio thread has rendered
+the fade. So `Stop(source)` followed at once by `Play(source)` throws. Play it again once `source.IsPlaying` is false,
+or make another instance. Each `Play` of a source hears the voices that have ended, so a source that finished or faded
+out since the last frame can be played again straight away.
+
+### Steering a source from the game
+
+The game and the audio thread share no lock, so a source takes its controls through two lock-free types:
+
+| Type | For | Game thread | Audio thread |
+|---|---|---|---|
+| `AudioParameter` | A continuous value where only the latest matters: a cutoff, an RPM, an intensity. | Set `Value` whenever it likes. | `Ramp(info.Frames)` once a block, then `Next()` once a sample: a straight line from where it was to `Value`. `Snap()` jumps straight there, for a control where a step is what's wanted (a waveform choice). |
+| `AudioEventQueue<T>` | Discrete events that must all arrive, in order: note on, note off, a trigger. `T` is a small struct. | `TryPost(event)` (false when full), or `Post`, which throws when full. | `TryTake(out event)` at the start of `Render`, until it returns false. |
+
+An `AudioEventQueue<T>` has a fixed capacity (rounded up to a power of two) and is strictly one thread posting and one
+taking. Two threads posting to the same queue corrupt it.
+
+```csharp
+readonly record struct NoteEvent(int Note, float Velocity, bool On);
+
+sealed class Synth : AudioSource
+{
+	public AudioEventQueue<NoteEvent> Notes { get; } = new(256);
+
+	protected override bool Render(Span<float> left, Span<float> right, in AudioRenderInfo info)
+	{
+		while (Notes.TryTake(out var note))
+		{
+			if (note.On)
+				NoteOn(note.Note, note.Velocity);
+			else
+				NoteOff(note.Note);
+		}
+		// ... render the voices
+		return true;
+	}
+}
+
+synth.Notes.TryPost(new NoteEvent(60, 0.9f, On: true)); // from Update
+```
+
+---
+
+## 6. Threads
+
+Two threads share an `AudioEngine`:
+
+- **The frame thread** (the thread that made the engine, the app's in a `LoomApplication`) calls every method. A call
+  from any other thread throws, except making clips (`CreateClip`, `LoadWav`), which touches no shared state.
+- **The audio thread** (the device's) mixes. It never waits on the game.
+
+Each call on the frame thread copies a command into a lock-free queue, and the audio thread takes the queued commands at
+the start of its next block. So a play is heard within one device buffer of the call, and the order of calls is the
+order they take effect. The audio thread answers through a second queue (the voices that ended, which `Update` frees)
+and through `Stats`.
+
+Once running, neither side allocates: not a play, a stop, a volume change, or a block of the mix.
+`AudioEngineTests.The_mix_allocates_nothing_once_running` holds the engine to that. The game's own allocations still
+matter: a garbage collection the game sets off pauses the audio thread too. A game that keeps its steady frame free of
+allocations, as Loom's render loop is, keeps its audio safe as well.
+
+### Watching the mix
+
+`Audio.Stats` reports how the mix is doing, for a debug display or a test:
+
+| Field | Meaning |
+|---|---|
+| `FramesRendered`, `Callbacks`, `LastCallbackFrames` | The mix's clock, how many times the device has asked for samples, and the buffer it is really running at. |
+| `ActiveVoices`, `DroppedVoices` | Voices playing now, and plays dropped because every voice was busy. |
+| `Peak` | The loudest sample of the last buffer, before the clip to -1..1. |
+| `RenderLoad`, `MaxRenderLoad` | How long the last render took, as a fraction of the time its samples last (0.1 is 10% of the deadline), and the highest since the first quarter second. Near 1, the output drops out. |
+
+---
+
+## 7. Platforms
+
+### The desktop
+
+The desktop host opens the system's default output through SDL 3, at the device's own rate in 32-bit float stereo, and
+asks for a 128-frame buffer. SDL rounds it to what the platform's audio API takes: on Windows that is shared-mode
+WASAPI's period, 480 frames (10 ms) at 48 kHz. An output on the default device follows the system's default as it
+changes (headphones plugged in), which SDL does on its own.
+
+SDL 3 is the same `SDL3.dll` the host reads gamepads with, fetched by `Sdl3.targets` (see
+[api-vocabulary.md](api-vocabulary.md#input-on-the-desktop-loomhostingdesktop)). The gamepad pump and the audio device
+each start and stop only their own SDL subsystem, so closing one never stops the other. Where SDL3 is missing or won't
+load, the app runs silent on a `NullAudioDevice`.
+
+### Android
+
+The Android host opens an AAudio output stream: low-latency performance mode, exclusive sharing where the device
+offers it (the MMAP path, straight into the hardware's buffer), usage `GAME`, and a buffer of two bursts, the floor
+AAudio's own guidance gives for glitch-free low latency. The mixer renders straight into AAudio's buffer on AAudio's
+high-priority callback thread.
+
+- **An exclusive stream can be taken away before it starts.** AAudio reports it disconnected. The device reopens it and
+  starts again, and if exclusive use is taken a second time, opens a shared stream instead.
+- **When the output changes** (headphones unplugged, a Bluetooth device dropping), AAudio ends the stream. The device
+  reopens one on the new output, at the engine's rate, from a thread of its own (AAudio forbids reopening from its
+  callbacks). Where the new output won't run at the engine's rate, the app goes silent and logs a warning, since the
+  engine's clips were made at the old rate.
+- **AAudio calls C# through a native shim.** Android builds `libaaudio` with Control-Flow Integrity, which crashes
+  (SIGSEGV in `__cfi_slowpath`) on a callback whose code lies outside any loaded library, and a C#
+  `[UnmanagedCallersOnly]` entry point is a runtime stub outside every library. So AAudio calls two forwarding
+  functions in `libloomaaudio.so` (`Loom.Hosting.Android/Native/loom_aaudio.c`), built without CFI, and they call the
+  C# callbacks. The built libraries for `arm64-v8a` and `x86_64`, linked for 16 KB pages, are checked in under
+  `Native/lib/`, so building Loom needs no NDK. Rebuild them with `pwsh Loom.Hosting.Android/Native/build.ps1` after
+  changing `loom_aaudio.c`.
+
+### The browser
+
+The .NET runtime can't run on the browser's audio thread, so the browser host turns the usual arrangement around. The
+mix runs on the frame thread, once a frame, after the app's tick. It tops up an AudioWorklet's queue to a lead of 50 ms
+ahead of the speaker (`AudioOptions.BufferFrames` sets it), and the worklet plays from that queue on the browser's
+audio thread. The lead is the web's latency, and it is what rides out a late frame: a frame later than the lead is
+heard as a gap.
+
+Because the mix runs on the frame thread, a source's `Render` runs there too. The rules for `Render` and the lock-free
+types work the same, so a source written for the desktop runs unchanged.
+
+- **A page makes sound only after the player's first click, tap or key.** The host listens for it and resumes the
+  AudioContext. Until then the mix keeps time (voices advance and end) and sends nothing.
+- When the frame loop stalls (a background tab), the mix skips the time it missed, a quarter second at most, rather
+  than rendering the whole gap at once.
+- `__loomAudio()` at the browser's console reports the output's state, its rate and latencies, and the frames sent and
+  played (sent minus played is how far the mix runs ahead of the speaker).
+- An embedder that boots the .NET runtime itself must register the `loom-audio` JS module beside `loom-webgpu` (see
+  `loom-boot.js`).
+
+### A host of your own, and tests
+
+`IHostControl.OpenAudioDevice(AudioOptions)` is how a host hands the app its output. The default returns a
+`NullAudioDevice`, so a host with no audio needs nothing. A host with an output implements `IAudioDevice`: once started, it asks the
+renderer for interleaved stereo 32-bit float at its `SampleRate`, on a thread of its own (or, as the browser's does,
+whenever the host pumps it), and it pauses and resumes on request.
+
+An `AudioEngine` also works on its own, over any `IAudioDevice`. `OfflineAudioDevice` renders only when asked, on the
+caller's thread: for tests, for rendering to a file faster than real time, and for a host that pumps audio itself.
+`Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioEventQueueTests`, `WavDecoderTests`), and the real
+SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is missing.
+
+---
+
+## 8. Not built yet
+
+- Streaming playback (music decoded as it plays) and decoders beyond WAV.
+- Ducking (one bus turning another down) and 3D positioning.
+- An exclusive-mode WASAPI path below shared mode's 10 ms on Windows.
+
+[`Planning.md` §10](../Planning.md#10-the-audio-track) tracks these.
