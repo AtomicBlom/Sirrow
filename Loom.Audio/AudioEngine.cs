@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 using Loom.Audio.Decoding;
@@ -56,6 +57,9 @@ public sealed class AudioEngine : IDisposable
 	private AudioStream[] _streams = [];
 	private AudioStreamer? _streamer;
 	private readonly bool _pumpStreams = OperatingSystem.IsBrowser();
+	// Which voices were played in 3D, by slot, and the listener as last sent (so an unmoved listener sends nothing)
+	private readonly bool[] _spatial;
+	private (Vector3? Position, Vector3? Forward, Vector3? Up, Vector3? Velocity) _listenerSent;
 	private bool _disposed;
 
 	/// <summary>An engine playing through <paramref name="device"/>, which it starts and from then on owns (disposing it with itself).</summary>
@@ -67,6 +71,8 @@ public sealed class AudioEngine : IDisposable
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxBuses, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.CommandCapacity, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegative(options.MaxDucks, nameof(options));
+		if (!float.IsFinite(options.SpeedOfSound) || options.SpeedOfSound <= 0f)
+			throw new ArgumentOutOfRangeException(nameof(options), options.SpeedOfSound, "AudioOptions.SpeedOfSound is more than zero, in the game's units a second.");
 		if (!float.IsFinite(options.UnfocusedVolume) || options.UnfocusedVolume < 0f)
 			throw new ArgumentOutOfRangeException(nameof(options), options.UnfocusedVolume, "AudioOptions.UnfocusedVolume is a linear gain, zero or more.");
 		if (device.SampleRate <= 0)
@@ -95,7 +101,8 @@ public sealed class AudioEngine : IDisposable
 		_duckEnabled = new bool[options.MaxDucks];
 		_unfocusedVolume = options.UnfocusedVolume;
 
-		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, options.MaxDucks, _commands, _ended);
+		_spatial = new bool[options.MaxVoices];
+		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, options.MaxDucks, options.SpeedOfSound, _commands, _ended);
 		device.Start(_mixer);
 	}
 
@@ -310,6 +317,164 @@ public sealed class AudioEngine : IDisposable
 		return new VoiceHandle(slot, generation);
 	}
 
+	/// <summary>
+	/// Places the listener: where the game hears from, usually its camera. 3D voices are heard from here, panned by which
+	/// side of the listener they are on and quieter with distance; the velocity shifts their pitch (Doppler). Call it each
+	/// frame the listener moves. Right-handed, as <see cref="Matrix4x4.CreateLookAt"/> is: the listener's right is
+	/// <paramref name="forward"/> × <paramref name="up"/>. Until it is set, the listener is at the origin facing -Z, with +Y up.
+	/// </summary>
+	/// <param name="position">Where the listener is, in the game's units.</param>
+	/// <param name="forward">Which way it faces. Needn't be unit length.</param>
+	/// <param name="up">Which way is up for it. Needn't be unit length, nor exactly square to <paramref name="forward"/>, but not along it.</param>
+	/// <param name="velocity">How fast it moves, in units a second: for Doppler. Zero for none.</param>
+	public void SetListener(Vector3 position, Vector3 forward, Vector3 up, Vector3 velocity = default)
+	{
+		CheckThread();
+		CheckVector(position, nameof(position));
+		CheckVector(velocity, nameof(velocity));
+		if (!IsFinite(forward) || !IsFinite(up) || forward.LengthSquared() < 1e-12f || up.LengthSquared() < 1e-12f
+			|| Vector3.Cross(forward, up).LengthSquared() < 1e-12f * forward.LengthSquared() * up.LengthSquared())
+			throw new ArgumentException("The listener's forward and up are finite, not zero, and not along each other.", nameof(forward));
+		forward = Vector3.Normalize(forward);
+		up = Vector3.Normalize(up);
+
+		SendVector(AudioCommandKind.ListenerPosition, -1, position, ref _listenerSent.Position);
+		SendVector(AudioCommandKind.ListenerForward, -1, forward, ref _listenerSent.Forward);
+		SendVector(AudioCommandKind.ListenerUp, -1, up, ref _listenerSent.Up);
+		SendVector(AudioCommandKind.ListenerVelocity, -1, velocity, ref _listenerSent.Velocity);
+	}
+
+	/// <summary>
+	/// Plays <paramref name="clip"/> as a 3D voice at <paramref name="position"/>: panned and attenuated for the listener
+	/// (<see cref="SetListener"/>), re-placed every block. A stereo clip is heard as one point, its channels mixed. Returns the
+	/// voice, to move with <see cref="SetPosition"/>, or <see cref="VoiceHandle.None"/> when every voice is busy.
+	/// </summary>
+	/// <param name="clip">A clip made by this engine.</param>
+	/// <param name="position">Where it sounds from, in the game's units.</param>
+	/// <param name="bus">Where the voice is mixed: the master bus by default.</param>
+	/// <param name="volume">A linear gain at the minimum distance or nearer.</param>
+	/// <param name="pitch">How fast the clip plays, before any Doppler shift.</param>
+	/// <param name="loop">Whether the clip starts over at its end, playing until stopped.</param>
+	/// <param name="spatial">How it falls off and shifts: <see cref="AudioSpatial"/>'s defaults when null.</param>
+	public VoiceHandle PlayAt(AudioClip clip, Vector3 position, AudioBus bus = default, float volume = 1f, float pitch = 1f, bool loop = false, AudioSpatial? spatial = null)
+	{
+		CheckThread();
+		ArgumentNullException.ThrowIfNull(clip);
+		if (clip.SampleRate != SampleRate)
+			throw new ArgumentException($"The clip is at {clip.SampleRate} Hz and this engine at {SampleRate} Hz: make clips with this engine's CreateClip or LoadWav.", nameof(clip));
+		CheckBus(bus);
+		CheckVolume(volume);
+		CheckPitch(pitch);
+		CheckVector(position, nameof(position));
+		var settings = CheckSpatial(spatial ?? new AudioSpatial());
+		if (!TryTakeVoice(out var slot, out var generation))
+			return VoiceHandle.None;
+		StartSpatialVoice(slot, position, settings, new AudioCommand { Kind = AudioCommandKind.PlayClip, Index = slot, Bus = bus.Index, A = volume, B = pitch, Loop = loop, Payload = clip });
+		return new VoiceHandle(slot, generation);
+	}
+
+	/// <summary>
+	/// Plays <paramref name="source"/> (a stream included) as a 3D voice at <paramref name="position"/>, as
+	/// <see cref="PlayAt(AudioClip, Vector3, AudioBus, float, float, bool, AudioSpatial?)"/> plays a clip: its two channels
+	/// heard as one point. A source has no pitch, so it isn't Doppler-shifted. The rules for playing a source are
+	/// <see cref="Play(AudioSource, AudioBus, float, float)"/>'s.
+	/// </summary>
+	public VoiceHandle PlayAt(AudioSource source, Vector3 position, AudioBus bus = default, float volume = 1f, AudioSpatial? spatial = null)
+	{
+		CheckThread();
+		ArgumentNullException.ThrowIfNull(source);
+		CheckBus(bus);
+		CheckVolume(volume);
+		CheckVector(position, nameof(position));
+		var settings = CheckSpatial(spatial ?? new AudioSpatial());
+		TakeEnded();
+		if (source.IsPlaying)
+			throw new InvalidOperationException(
+				"The source is still playing: a source plays on one voice at a time, and a stopped one plays on until the audio " +
+				"thread has rendered its fade. Play it again once AudioSource.IsPlaying is false, or make another instance.");
+		source.Start(SampleRate);
+		if (!TryTakeVoice(out var slot, out var generation))
+			return VoiceHandle.None;
+		_sources[slot] = source;
+		source.VoiceSlot = slot;
+		StartSpatialVoice(slot, position, settings, new AudioCommand { Kind = AudioCommandKind.PlaySource, Index = slot, Bus = bus.Index, A = volume, Payload = source });
+		return new VoiceHandle(slot, generation);
+	}
+
+	/// <summary>
+	/// Moves a 3D voice to <paramref name="position"/>, heard from the next block. <paramref name="velocity"/>, in units a
+	/// second, shifts its pitch (Doppler); zero for none. A stale handle is ignored.
+	/// </summary>
+	/// <exception cref="InvalidOperationException">The voice was played with <c>Play</c>, not <c>PlayAt</c>: it has no position.</exception>
+	public void SetPosition(VoiceHandle voice, Vector3 position, Vector3 velocity = default)
+	{
+		CheckThread();
+		CheckVector(position, nameof(position));
+		CheckVector(velocity, nameof(velocity));
+		if (!IsLive(voice))
+			return;
+		if (!_spatial[voice.Slot])
+			throw new InvalidOperationException("The voice was played with Play, so it has no position: play it with PlayAt to place it in 3D.");
+		Send(new AudioCommand { Kind = AudioCommandKind.VoicePosition, Index = voice.Slot, A = position.X, B = position.Y, C = position.Z });
+		Send(new AudioCommand { Kind = AudioCommandKind.VoiceVelocity, Index = voice.Slot, A = velocity.X, B = velocity.Y, C = velocity.Z });
+	}
+
+	// A 3D play: its settings, position and (still) velocity go ahead of it, and the play keeps them
+	private void StartSpatialVoice(int slot, Vector3 position, in AudioSpatial settings, AudioCommand play)
+	{
+		var setup = new AudioCommand
+		{
+			Kind = AudioCommandKind.VoiceSpatial,
+			Index = slot,
+			A = settings.MinDistance,
+			B = settings.MaxDistance,
+			C = settings.RolloffFactor,
+			D = settings.DopplerFactor,
+			Frames = (int)settings.Rolloff,
+		};
+		if (!_commands.TryPost(setup)
+			|| !_commands.TryPost(new AudioCommand { Kind = AudioCommandKind.VoicePosition, Index = slot, A = position.X, B = position.Y, C = position.Z })
+			|| !_commands.TryPost(new AudioCommand { Kind = AudioCommandKind.VoiceVelocity, Index = slot }))
+		{
+			FreeVoice(slot);
+			throw QueueFull();
+		}
+		play.Spatial = true;
+		_spatial[slot] = true;
+		StartVoice(slot, play);
+	}
+
+	private void SendVector(AudioCommandKind kind, int index, Vector3 value, ref Vector3? last)
+	{
+		if (last == value)
+			return;
+		Send(new AudioCommand { Kind = kind, Index = index, A = value.X, B = value.Y, C = value.Z });
+		last = value;
+	}
+
+	private static AudioSpatial CheckSpatial(AudioSpatial spatial)
+	{
+		if (!float.IsFinite(spatial.MinDistance) || spatial.MinDistance <= 0f)
+			throw new ArgumentOutOfRangeException(nameof(spatial), spatial.MinDistance, "AudioSpatial.MinDistance is more than zero.");
+		if (!float.IsFinite(spatial.MaxDistance) || spatial.MaxDistance < spatial.MinDistance)
+			throw new ArgumentOutOfRangeException(nameof(spatial), spatial.MaxDistance, "AudioSpatial.MaxDistance is at least MinDistance.");
+		if (!float.IsFinite(spatial.RolloffFactor) || spatial.RolloffFactor < 0f)
+			throw new ArgumentOutOfRangeException(nameof(spatial), spatial.RolloffFactor, "AudioSpatial.RolloffFactor is zero or more.");
+		if (!float.IsFinite(spatial.DopplerFactor) || spatial.DopplerFactor < 0f)
+			throw new ArgumentOutOfRangeException(nameof(spatial), spatial.DopplerFactor, "AudioSpatial.DopplerFactor is zero or more.");
+		if (spatial.Rolloff is < AudioRolloff.Inverse or > AudioRolloff.Exponential)
+			throw new ArgumentOutOfRangeException(nameof(spatial), spatial.Rolloff, "No such rolloff.");
+		return spatial;
+	}
+
+	private static void CheckVector(Vector3 value, string name)
+	{
+		if (!IsFinite(value))
+			throw new ArgumentOutOfRangeException(name, value, "A position or velocity is finite.");
+	}
+
+	private static bool IsFinite(Vector3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
+
 	/// <summary>Whether <paramref name="voice"/> is still playing, as the game thread last heard (at most a frame old).</summary>
 	public bool IsPlaying(VoiceHandle voice)
 	{
@@ -336,12 +501,16 @@ public sealed class AudioEngine : IDisposable
 	}
 
 	/// <summary>Moves <paramref name="voice"/>'s pan to <paramref name="pan"/> (-1 left, 1 right) across the next block. A stale handle is ignored.</summary>
+	/// <exception cref="InvalidOperationException">The voice is a 3D one (<c>PlayAt</c>): its position pans it.</exception>
 	public void SetPan(VoiceHandle voice, float pan)
 	{
 		CheckThread();
 		CheckPan(pan);
-		if (IsLive(voice))
-			Send(new AudioCommand { Kind = AudioCommandKind.VoicePan, Index = voice.Slot, A = pan });
+		if (!IsLive(voice))
+			return;
+		if (_spatial[voice.Slot])
+			throw new InvalidOperationException("The voice is a 3D one, panned by its position: move it with SetPosition instead.");
+		Send(new AudioCommand { Kind = AudioCommandKind.VoicePan, Index = voice.Slot, A = pan });
 	}
 
 	/// <summary>
@@ -547,6 +716,7 @@ public sealed class AudioEngine : IDisposable
 		slot = _free[--_freeCount];
 		generation = _generations[slot] = _generations[slot] == int.MaxValue ? 1 : _generations[slot] + 1;
 		_playing[slot] = true;
+		_spatial[slot] = false;
 		_activeVoices++;
 		return true;
 	}

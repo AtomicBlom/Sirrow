@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Numerics;
 
 namespace Loom.Audio.Mixing;
 
@@ -30,6 +31,13 @@ internal sealed class AudioMixer : IAudioRenderer
 	private readonly Duck[] _ducks;
 	private int _duckCount;
 	private GainRamp _output; // after the master bus: the app's focus volume, kept apart from the game's own master volume
+							  // The listener, as the game last set it: 3D voices are placed against it every block
+	private readonly float _speedOfSound;
+	private Vector3 _listener;
+	private Vector3 _listenerForward = -Vector3.UnitZ;
+	private Vector3 _listenerUp = Vector3.UnitY;
+	private Vector3 _listenerRight = Vector3.UnitX;
+	private Vector3 _listenerVelocity;
 	private int _busCount = 1;
 	private long _frameTime;
 
@@ -43,9 +51,10 @@ internal sealed class AudioMixer : IAudioRenderer
 	/// <summary>The first exception a source threw on the audio thread, for the game thread to throw again.</summary>
 	public Exception? Fault;
 
-	public AudioMixer(int sampleRate, int maxVoices, int maxBuses, int maxDucks, AudioEventQueue<AudioCommand> commands, AudioEventQueue<int> ended)
+	public AudioMixer(int sampleRate, int maxVoices, int maxBuses, int maxDucks, float speedOfSound, AudioEventQueue<AudioCommand> commands, AudioEventQueue<int> ended)
 	{
 		_sampleRate = sampleRate;
+		_speedOfSound = speedOfSound;
 		_commands = commands;
 		_ended = ended;
 		_voices = new Voice[maxVoices];
@@ -104,8 +113,16 @@ internal sealed class AudioMixer : IAudioRenderer
 			ref var voice = ref _voices[i];
 			if (!voice.Active)
 				continue;
-			var finished = voice.Source is not null ? RenderSource(ref voice, in info) : RenderClip(ref voice, n);
+			var doppler = voice.Spatial ? Place(ref voice) : 1f;
+			var finished = voice.Source is not null ? RenderSource(ref voice, in info) : RenderClip(ref voice, n, doppler);
 			var mono = voice.Clip is { Channels: 1 };
+			if (voice.Spatial && !mono)
+			{
+				// A 3D voice is a point: its two channels heard as one, then panned
+				for (var s = 0; s < n; s++)
+					_scratchLeft[s] = 0.5f * (_scratchLeft[s] + _scratchRight[s]);
+				mono = true;
+			}
 			MixVoice(ref voice, _buses[voice.Bus], n, mono);
 			if (finished || (voice.Stopping && voice.Volume.Current == 0f))
 				End(i);
@@ -157,7 +174,19 @@ internal sealed class AudioMixer : IAudioRenderer
 				case AudioCommandKind.PlayClip:
 				case AudioCommandKind.PlaySource:
 					ref var started = ref _voices[command.Index];
+					// A 3D play's settings and position came just before it: keep them through the reset
+					var placement = started.Settings;
+					var at = started.At;
+					var velocity = started.Velocity;
 					started = default;
+					if (command.Spatial)
+					{
+						started.Spatial = true;
+						started.Settings = placement;
+						started.At = at;
+						started.Velocity = velocity;
+					}
+					started.DistanceGain = started.DistanceGainTarget = 1f;
 					started.Active = true;
 					started.Bus = command.Bus;
 					started.Clip = command.Payload as AudioClip;
@@ -202,14 +231,63 @@ internal sealed class AudioMixer : IAudioRenderer
 				case AudioCommandKind.OutputVolume:
 					_output.Set(command.A, command.Frames);
 					break;
+				case AudioCommandKind.ListenerPosition:
+					_listener = new Vector3(command.A, command.B, command.C);
+					break;
+				case AudioCommandKind.ListenerForward:
+					_listenerForward = new Vector3(command.A, command.B, command.C);
+					_listenerRight = Vector3.Normalize(Vector3.Cross(_listenerForward, _listenerUp));
+					break;
+				case AudioCommandKind.ListenerUp:
+					_listenerUp = new Vector3(command.A, command.B, command.C);
+					_listenerRight = Vector3.Normalize(Vector3.Cross(_listenerForward, _listenerUp));
+					break;
+				case AudioCommandKind.ListenerVelocity:
+					_listenerVelocity = new Vector3(command.A, command.B, command.C);
+					break;
+				case AudioCommandKind.VoiceSpatial:
+					_voices[command.Index].Settings = new AudioSpatial
+					{
+						MinDistance = command.A,
+						MaxDistance = command.B,
+						RolloffFactor = command.C,
+						DopplerFactor = command.D,
+						Rolloff = (AudioRolloff)command.Frames,
+					};
+					break;
+				case AudioCommandKind.VoicePosition:
+					_voices[command.Index].At = new Vector3(command.A, command.B, command.C);
+					break;
+				case AudioCommandKind.VoiceVelocity:
+					_voices[command.Index].Velocity = new Vector3(command.A, command.B, command.C);
+					break;
 				default:
 					throw new InvalidOperationException($"Unknown audio command {command.Kind}.");
 			}
 		}
 	}
 
-	/// <summary>Plays a clip voice's next <paramref name="n"/> frames into the scratch buffers; returns whether it reached its end.</summary>
-	private bool RenderClip(ref Voice voice, int n)
+	// Places a 3D voice for the listener as they are now: its pan and distance gain, ramped across the block from where
+	// they were (or set outright on its first block), and its Doppler pitch factor, which it returns
+	private float Place(ref Voice voice)
+	{
+		var (gain, pan, doppler) = Spatializer.Compute(_listener, _listenerRight, _listenerVelocity, voice.At, voice.Velocity, in voice.Settings, _speedOfSound);
+		if (!voice.Placed)
+		{
+			voice.DistanceGain = gain;
+			voice.Pan = pan;
+			voice.Placed = true;
+		}
+		voice.DistanceGainTarget = gain;
+		voice.PanTarget = pan;
+		return doppler;
+	}
+
+	/// <summary>
+	/// Plays a clip voice's next <paramref name="n"/> frames into the scratch buffers, its pitch times
+	/// <paramref name="pitchScale"/> (a 3D voice's Doppler shift); returns whether it reached its end.
+	/// </summary>
+	private bool RenderClip(ref Voice voice, int n, float pitchScale)
 	{
 		var clip = voice.Clip!;
 		var samples = clip.Samples;
@@ -218,7 +296,7 @@ internal sealed class AudioMixer : IAudioRenderer
 		var left = _scratchLeft;
 		var right = _scratchRight;
 		var position = voice.Position;
-		var pitch = voice.Pitch;
+		var pitch = voice.Pitch * pitchScale;
 		var loop = voice.Loop && frames > 0;
 		for (var i = 0; i < n; i++)
 		{
@@ -282,11 +360,15 @@ internal sealed class AudioMixer : IAudioRenderer
 		}
 	}
 
-	/// <summary>Adds the scratch buffers into <paramref name="bus"/> at the voice's volume and pan, ramped across the block.</summary>
+	/// <summary>
+	/// Adds the scratch buffers into <paramref name="bus"/> at the voice's volume (times a 3D voice's distance gain) and pan,
+	/// ramped across the block.
+	/// </summary>
 	private void MixVoice(ref Voice voice, Bus bus, int n, bool mono)
 	{
-		var v0 = voice.Volume.Current;
-		var v1 = voice.Volume.Advance(n);
+		var v0 = voice.Volume.Current * voice.DistanceGain;
+		var v1 = voice.Volume.Advance(n) * voice.DistanceGainTarget;
+		voice.DistanceGain = voice.DistanceGainTarget;
 		var p0 = voice.Pan;
 		var p1 = voice.PanTarget;
 		voice.Pan = p1;
@@ -406,6 +488,15 @@ internal sealed class AudioMixer : IAudioRenderer
 		public float Pan;
 		public float PanTarget;
 		public GainRamp Volume;
+
+		// A 3D voice: placed for the listener every block, which sets its pan, its distance gain and its pitch factor
+		public bool Spatial;
+		public bool Placed; // placed at least once: until then its first block starts where it is, not ramping in from the centre
+		public AudioSpatial Settings;
+		public Vector3 At;
+		public Vector3 Velocity;
+		public float DistanceGain;
+		public float DistanceGainTarget;
 	}
 
 	private sealed class Bus

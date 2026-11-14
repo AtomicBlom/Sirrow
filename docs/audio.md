@@ -69,6 +69,7 @@ Every value is a request the platform meets as closely as it can. `Audio.Device`
 | `MaxVoices` | 64 | Voices playing at once, clips and sources together. A play past it is dropped (see [Voices](#3-voices)). |
 | `MaxBuses` | 16 | Buses, the master bus included. |
 | `MaxDucks` | 8 | Ducks (see [Ducking](#ducking)). |
+| `SpeedOfSound` | 343 | The speed of sound in the game's units a second, for the Doppler shift of 3D voices: 343 for metres, 1125 for feet. |
 | `UnfocusedVolume` | 1 (no change) | The output's volume while the app is out of focus: another window in front, the browser tab hidden, the app behind another on Android. The whole mix fades to it over a quarter second and back on return. 0 silences an app in the background. It is a gain of its own after the master bus, so the game's volumes, the master's included, are left alone. |
 | `CommandCapacity` | 4096 | Commands (plays, stops, volume changes) waiting for the audio thread at once. Past it the engine throws rather than drop one. |
 
@@ -172,6 +173,50 @@ Things to know:
   `Stats.DroppedVoices`. Raise `AudioOptions.MaxVoices` if that happens in normal play.
 - A mono clip pans at equal power (-3 dB in each side at the centre). A stereo clip or a source pans as a balance: it
   keeps its own image and turns down the side it pans away from.
+
+### Voices in 3D
+
+A voice played with `PlayAt` has a position instead of a pan. Each block, the engine places it for the listener: panned
+by which side of the listener it is on, quieter with distance, and pitch-shifted by motion (Doppler).
+
+```csharp
+// Each frame, from the game's camera (the engine takes positions, never a camera)
+Audio.SetListener(camera.Position, camera.Forward, camera.Up, cameraVelocity);
+
+var engineHum = Audio.PlayAt(_humClip, car.Position, _sfx, loop: true,
+	spatial: new AudioSpatial { MinDistance = 2f, MaxDistance = 80f });
+Audio.SetPosition(engineHum, car.Position, car.Velocity);  // each frame it moves
+Audio.PlayAt(_footstep, foot.Position, _sfx);                // a one-shot where it happened
+```
+
+| Member | What it does |
+|---|---|
+| `SetListener(position, forward, up, velocity)` | Where the game hears from. Call it each frame the listener moves. Until it is set, the listener is at the origin facing -Z, with +Y up. |
+| `PlayAt(clip, position, bus, volume, pitch, loop, spatial)` | Plays a clip as a 3D voice. |
+| `PlayAt(source, position, bus, volume, spatial)` | Plays a source (a stream included) as a 3D voice. |
+| `SetPosition(voice, position, velocity)` | Moves a 3D voice, heard from the next block. |
+
+`AudioSpatial` sets how a voice falls off and shifts. Its distances are in the game's units, as its positions are:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `MinDistance` | 1 | Within this, full volume. |
+| `MaxDistance` | 100 | Beyond this, no quieter. |
+| `Rolloff` | `Inverse` | The curve between the two: `Inverse` (halves at twice the minimum distance; how sound falls off in the open), `Linear` (a straight fade to silence at the maximum distance), or `Exponential`. They are OpenAL's clamped models. |
+| `RolloffFactor` | 1 | How steep the curve is: 0 doesn't fall off, 2 is twice as steep. |
+| `DopplerFactor` | 1 | How much motion shifts the pitch: 0 never, 1 as sound really does, more to exaggerate it. |
+
+- **Right-handed,** as `Matrix4x4.CreateLookAt` is: the listener's right is forward × up.
+- **Stereo panning only:** a voice's pan is how far to the listener's right it is. Two speakers can't tell front from
+  back, so a voice behind the listener sounds where its mirror in front would. There is no HRTF.
+- **A 3D voice is one point.** A stereo clip or source is heard with its two channels mixed, then panned at equal power.
+- **Doppler comes from the velocities the game gives,** the voice's and the listener's, not from how far they moved
+  between frames, which would jitter with the frame rate. A voice given no velocity isn't shifted. The shift is held
+  within two octaves either way. A source has no pitch, so it isn't shifted.
+- **Volume and pitch still apply:** `SetVolume` scales the voice under its distance gain, and `SetPitch` multiplies with
+  the Doppler shift. `SetPan` on a 3D voice throws, as does `SetPosition` on a voice played with `Play`.
+- Everything moves smoothly: the distance gain and the pan ramp across each block, and a 3D voice is placed before its
+  first block, so it never starts at the centre at full volume.
 
 ---
 
@@ -417,7 +462,7 @@ whenever the host pumps it), and it pauses and resumes on request.
 
 An `AudioEngine` also works on its own, over any `IAudioDevice`. `OfflineAudioDevice` renders only when asked, on the
 caller's thread: for tests, for rendering to a file faster than real time, and for a host that pumps audio itself.
-`Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioDuckTests`, `AudioStreamTests`, `AudioEventQueueTests`,
+`Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioDuckTests`, `Audio3DTests`, `AudioStreamTests`, `AudioEventQueueTests`,
 `WavDecoderTests`, `VorbisDecoderTests`), and the real
 SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is missing.
 
@@ -426,7 +471,7 @@ SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is 
 ## 8. Not built yet
 
 - Decoders beyond WAV and Ogg Vorbis (FLAC, Opus).
-- 3D positioning.
+- 3D beyond stereo panning: HRTF (above and behind), occlusion, reverb zones, and sound cones.
 - An exclusive-mode WASAPI path below shared mode's 10 ms on Windows.
 
 [`Planning.md` §10](../Planning.md#10-the-audio-track) tracks these.

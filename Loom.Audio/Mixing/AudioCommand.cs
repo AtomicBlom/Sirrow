@@ -5,11 +5,13 @@ internal struct AudioCommand
 {
 	public AudioCommandKind Kind;
 	public bool Loop;
+	public bool Spatial;
 	public int Index;
 	public int Bus;
 	public int Frames;
 	public float A;
 	public float B;
 	public float C;
+	public float D;
 	public object? Payload;
 }
