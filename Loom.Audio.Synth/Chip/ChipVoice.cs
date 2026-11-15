@@ -55,6 +55,10 @@ internal sealed class ChipVoice
 	public int PieceIndex = -1;
 	public int ChokeGroup;
 	public SampleData? Take;      // a kit hit's take, for its one sample operator
+	public int InstrumentIndex;   // the instrument's slot in the core
+	public int GainSlot;          // 1 + a slot of the core's GainSlots, or 0 for none
+	public float SlotGain;        // the slot's value the last block used; below 0 before the first
+	public float LastPeak;        // the loudest of its last block, after its gain, before pan and the group's effects
 
 	public bool HasPending;
 	public ChipEvent Pending;     // the note a stolen voice starts once faded
@@ -82,6 +86,10 @@ internal sealed class ChipVoice
 		PieceIndex = e.Kind == ChipEventKind.Hit ? e.PieceIndex : -1;
 		ChokeGroup = e.Kind == ChipEventKind.Hit && instrument.Kit is { } kit ? kit.Pieces[e.PieceIndex].ChokeGroup : 0;
 		Take = take;
+		InstrumentIndex = e.Instrument;
+		GainSlot = e.GainSlot;
+		SlotGain = -1f;
+		LastPeak = 0f;
 
 		var hz = Units.NoteToHz(e.Note);
 		var strings = 0;
@@ -184,7 +192,7 @@ internal sealed class ChipVoice
 	/// (its heard operators idle and the block silent, or faded out).
 	/// </summary>
 	public bool Render(int n, float[][] scratch, float[] groupLeft, float[] groupRight, float[] spaceLeft, float[] spaceRight,
-		float[] echoLeft, float[] echoRight)
+		float[] echoLeft, float[] echoRight, float[] gainSlots)
 	{
 		var patch = Patch;
 		var macros = Instrument!.Macros;
@@ -278,7 +286,7 @@ internal sealed class ChipVoice
 
 		var driveGain = 1f + 8f * Math.Clamp(drive, 0f, 1f);
 		var driveNorm = 1f / MathF.Sqrt(driveGain);
-		var gain = Velocity * Velocity * Units.DbToGain(patch.GainDb) * gainScale;
+		var gain = Velocity * Velocity * Units.DbToGain(patch.GainDb) * gainScale * Instrument.Gain;
 		var pan = Math.Clamp(patch.Pan + NotePan, -1f, 1f);
 		var angle = (pan + 1f) * (MathF.PI / 4f);
 		var toLeft = MathF.Cos(angle);
@@ -329,19 +337,26 @@ internal sealed class ChipVoice
 			peak = MathF.Max(peak, MathF.Abs(mix[s]));
 
 		// Gain, the fade of a voice being stolen or choked, pan, and the sends
+		// A gain slot the game moves while the note sounds (a part's level), ramped across the block from where it was
+		var slot1 = GainSlot > 0 ? gainSlots[GainSlot - 1] : 1f;
+		var slot0 = SlotGain < 0f ? slot1 : SlotGain;
+		SlotGain = slot1;
+		var slotStep = (slot1 - slot0) / n;
 		var fade = Fade;
 		var left = gain * toLeft;
 		var right = gain * toRight;
-		if (FadeStep > 0f)
+		if (FadeStep > 0f || fade != 1f || slot0 != 1f || slot1 != 1f)
 			for (var s = 0; s < n; s++)
 			{
-				fade = MathF.Max(0f, fade - FadeStep);
-				mix[s] *= fade;
+				if (FadeStep > 0f)
+					fade = MathF.Max(0f, fade - FadeStep);
+				mix[s] *= fade * (slot0 + slotStep * s);
 			}
-		else if (fade != 1f)
-			for (var s = 0; s < n; s++)
-				mix[s] *= fade;
 		Fade = fade;
+		var heard = 0f;
+		for (var s = 0; s < n; s++)
+			heard = MathF.Max(heard, MathF.Abs(mix[s]));
+		LastPeak = heard * gain;
 		for (var s = 0; s < n; s++)
 		{
 			groupLeft[s] += mix[s] * left;

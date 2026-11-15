@@ -1,0 +1,243 @@
+using Loom.Audio.Synth.Chip;
+using Loom.Audio.Synth.Dsp;
+
+namespace Loom.Audio.Synth.Music;
+
+/// <summary>
+/// A song made into what the sequencer reads on the audio thread: arrays of structs, indexed by small integers, never
+/// changed once made. Made on the game thread in one scale.
+/// </summary>
+internal sealed class CompiledSong
+{
+	private CompiledSong(Song song, Scale scale)
+	{
+		Song = song;
+		Scale = scale;
+	}
+
+	public Song Song { get; }
+	public Scale Scale { get; }
+	public float Tempo { get; private init; }
+	public int TicksPerBar { get; private init; }
+	public int TicksPerBeat { get; private init; }
+	public CompiledTrack[] Tracks { get; private init; } = [];
+	public CueBase[] Cues { get; private init; } = [];
+	public CompiledSection[] Sections { get; private init; } = [];
+	public int[] Order { get; private init; } = [];       // section indices in turn; empty when conducted
+	public bool Conducted { get; private init; }
+	public int LatchCount { get; private init; }
+	public int MostPlacements { get; private init; }
+	public ChipOptions ChipOptions { get; private init; } = new();
+
+	public int SlotOf(CueBase cue) => Array.IndexOf(Cues, cue);
+
+	public static CompiledSong Compile(Song song, Scale scale)
+	{
+		ArgumentNullException.ThrowIfNull(song);
+		ArgumentNullException.ThrowIfNull(scale);
+		if (song.Sections.Count == 0)
+			throw new InvalidOperationException($"Song '{song.Name}' has no sections.");
+		var ticksPerBar = song.Meter.TicksPerBar;
+		var cues = song.Cues.ToArray();
+		int Slot(CueBase cue) => Array.IndexOf(cues, cue);
+
+		var tracks = new CompiledTrack[song.Tracks.Count];
+		for (var t = 0; t < tracks.Length; t++)
+		{
+			var track = song.Tracks[t];
+			var group = track.Group?.Index ?? 0;
+			tracks[t] = new CompiledTrack
+			{
+				Name = track.Name,
+				Patch = track.Patch,
+				Kit = track.Kit,
+				Group = group,
+				Gain = Units.DbToGain(track.GainDb),
+				Pan = track.PanValue,
+				HumaniseMs = track.HumaniseMs,
+				HumaniseVelocity = track.HumaniseVelocity,
+				Seed = Seed(track.Name),
+				Macros = [.. track.Macros.Select(m => new MacroFollow(m.Macro.Id, m.Cue is null ? -1 : Slot(m.Cue), m.From, m.To))],
+			};
+		}
+
+		var latches = 0;
+		var gainSlots = 0;
+		var sections = new CompiledSection[song.Sections.Count];
+		var most = 0;
+		for (var s = 0; s < sections.Length; s++)
+		{
+			var section = song.Sections[s];
+			var length = section.Bars * ticksPerBar;
+			var placements = new CompiledPlacement[section.Placements.Count];
+			for (var p = 0; p < placements.Length; p++)
+			{
+				var placement = section.Placements[p];
+				var track = placement.Track;
+				var context = new PartContext(scale, section.Chords, ticksPerBar, track.OctaveValue, track.Kit, song.Tempo);
+				var events = new List<SongEvent>();
+				var parsed = placement.Parsed;
+				// The part repeated through the section, cut at its end (or at the last bar, which a fill takes)
+				var limit = placement.Fill is null ? length : length - ticksPerBar;
+				for (var offset = 0; offset < limit; offset += parsed.LengthTicks)
+					parsed.Emit(context, offset, limit, events);
+				placement.Fill?.Emit(context, length - ticksPerBar, length, events);
+				Swing(events, track);
+				events.Sort((a, b) => a.Tick != b.Tick ? a.Tick.CompareTo(b.Tick) : a.Note.CompareTo(b.Note));
+
+				var program = new List<ConditionOp>();
+				if (placement.Condition is { } condition)
+					Emit(condition, program, Slot, ref latches);
+				var levelSlot = placement.LevelCue is { } level ? Slot(level) : -1;
+				var gainSlot = -1;
+				if (levelSlot >= 0)
+				{
+					if (gainSlots == ChipCore.GainSlotCount)
+						throw new InvalidOperationException($"Song '{song.Name}' has more than {ChipCore.GainSlotCount} parts whose level follows a cue.");
+					gainSlot = gainSlots++;
+				}
+				placements[p] = new CompiledPlacement
+				{
+					Source = placement,
+					Name = placement.Name,
+					Track = track.Index,
+					Events = [.. events],
+					LoopTicks = (parsed.LengthTicks + ticksPerBar - 1) / ticksPerBar * ticksPerBar,
+					Condition = [.. program],
+					LevelSlot = levelSlot,
+					GainSlot = gainSlot,
+					OnPhrase = placement.OnPhraseValue,
+				};
+			}
+			most = Math.Max(most, placements.Length);
+			sections[s] = new CompiledSection { Source = section, Name = section.Name, LengthTicks = length, Placements = placements };
+		}
+
+		var order = song.Conductor is not null ? [] : song.OrderList.Count > 0 ? song.OrderList.Select(o => o.Index).ToArray() : [0];
+		ChipGroup[] groups = [new("main"), .. song.Groups.Select(g => new ChipGroup(g.Name, g.Effects))];
+		return new CompiledSong(song, scale)
+		{
+			Tempo = song.Tempo,
+			TicksPerBar = ticksPerBar,
+			TicksPerBeat = ticksPerBar / song.Meter.Beats,
+			Tracks = tracks,
+			Cues = cues,
+			Sections = sections,
+			Order = order,
+			Conducted = song.Conductor is not null,
+			LatchCount = latches,
+			MostPlacements = most,
+			ChipOptions = new ChipOptions
+			{
+				Voices = song.Voices,
+				Groups = groups,
+				SpaceEffects = song.SpaceEffects,
+				EchoEffects = song.EchoEffects,
+				MasterEffects = song.MasterEffects,
+				MaxInstruments = Song.MaxTracks,
+				EventCapacity = 64,
+			},
+		};
+	}
+
+	// Each off-beat step pushed late: an event on an odd multiple of the step moves by (ratio − 0.5) · 2 · step
+	private static void Swing(List<SongEvent> events, SongTrack track)
+	{
+		if (track.SwingRatio == 0.5f)
+			return;
+		var step = track.SwingStep;
+		var shift = (int)Math.Round((track.SwingRatio - 0.5f) * 2f * step);
+		for (var i = 0; i < events.Count; i++)
+		{
+			var e = events[i];
+			if (e.Tick % step == 0 && e.Tick / step % 2 == 1)
+			{
+				e.Tick += shift;
+				events[i] = e;
+			}
+		}
+	}
+
+	// A condition as postfix steps; Above and Below each get a latch for the 0.05 margin
+	private static void Emit(Condition condition, List<ConditionOp> program, Func<CueBase, int> slot, ref int latches)
+	{
+		switch (condition)
+		{
+			case AboveCondition above:
+				program.Add(new ConditionOp { Kind = ConditionOpKind.Above, Slot = slot(above.Cue), Value = above.Level, Latch = latches++ });
+				break;
+			case BelowCondition below:
+				program.Add(new ConditionOp { Kind = ConditionOpKind.Below, Slot = slot(below.Cue), Value = below.Level, Latch = latches++ });
+				break;
+			case IsCondition @is:
+				program.Add(new ConditionOp { Kind = ConditionOpKind.Is, Slot = slot(@is.Cue), Value = @is.Value });
+				break;
+			case AndCondition and:
+				Emit(and.A, program, slot, ref latches);
+				Emit(and.B, program, slot, ref latches);
+				program.Add(new ConditionOp { Kind = ConditionOpKind.And });
+				break;
+			case OrCondition or:
+				Emit(or.A, program, slot, ref latches);
+				Emit(or.B, program, slot, ref latches);
+				program.Add(new ConditionOp { Kind = ConditionOpKind.Or });
+				break;
+			case NotCondition not:
+				Emit(not.A, program, slot, ref latches);
+				program.Add(new ConditionOp { Kind = ConditionOpKind.Not });
+				break;
+		}
+		if (program.Count > 64)
+			throw new InvalidOperationException("A condition has more than 64 steps.");
+	}
+
+	// A stable hash of a track's name (FNV-1a), so its humanising is the same every time
+	private static uint Seed(string name)
+	{
+		var h = 2166136261u;
+		foreach (var c in name)
+			h = (h ^ c) * 16777619u;
+		return h;
+	}
+}
+
+/// <summary>A track as the sequencer reads it.</summary>
+internal sealed class CompiledTrack
+{
+	public string Name { get; init; } = "";
+	public Patch? Patch { get; init; }
+	public DrumKit? Kit { get; init; }
+	public int Group { get; init; }
+	public float Gain { get; init; } = 1f;
+	public float Pan { get; init; }
+	public float HumaniseMs { get; init; }
+	public float HumaniseVelocity { get; init; }
+	public uint Seed { get; init; }
+	public MacroFollow[] Macros { get; init; } = [];
+}
+
+/// <summary>A macro a track's song steers: from a cue's slot, or held (slot −1, From = To).</summary>
+internal readonly record struct MacroFollow(int Macro, int Slot, float From, float To);
+
+/// <summary>A section as the sequencer reads it.</summary>
+internal sealed class CompiledSection
+{
+	public Section Source { get; init; } = null!;
+	public string Name { get; init; } = "";
+	public int LengthTicks { get; init; }
+	public CompiledPlacement[] Placements { get; init; } = [];
+}
+
+/// <summary>A placement as the sequencer reads it: its events through the whole section, a fill's in its last bar.</summary>
+internal sealed class CompiledPlacement
+{
+	public Placement Source { get; init; } = null!;
+	public string Name { get; init; } = "";
+	public int Track { get; init; }
+	public SongEvent[] Events { get; init; } = [];
+	public int LoopTicks { get; init; }                  // the part's own length in whole bars: where an on-phrase part may start
+	public ConditionOp[] Condition { get; init; } = [];  // empty: always
+	public int LevelSlot { get; init; } = -1;
+	public int GainSlot { get; init; } = -1;
+	public bool OnPhrase { get; init; }
+}

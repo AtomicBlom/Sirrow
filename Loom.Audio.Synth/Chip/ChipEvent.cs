@@ -29,4 +29,5 @@ internal struct ChipEvent
 	public float Value;
 	public int PieceIndex;
 	public object? Payload;     // an instrument added: its ChipInstrumentState
+	public int GainSlot;        // a note on or hit: 1 + a slot of ChipCore.GainSlots its voice follows; 0, the default, for none
 }

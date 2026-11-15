@@ -32,6 +32,8 @@ internal sealed class ChipInstrumentState
 	public Patch[] PiecePatches { get; } = [];
 	public int[] PieceTurns { get; } = [];
 	public int NoteTurn;    // a counter stepped per note, for a sample operator's alternate takes
+	public float Gain = 1f;   // a linear gain over every voice of it: a song track's level
+	public bool Muted;        // its notes and hits are ignored while set
 
 	// A sampled piece as a patch: one one-shot sample operator (its take chosen at the hit), the piece's gain and pan.
 	// The velocity is left to the voice's own velocity squared, since the layers carry the dynamics

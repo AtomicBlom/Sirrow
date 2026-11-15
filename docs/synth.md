@@ -1,7 +1,8 @@
 # Synthesis
 
 What [`Loom.Audio.Synth`](../Loom.Audio.Synth) adds over [the mixer](audio.md): the DSP building blocks a source is
-made of, effects for buses, a 16-operator synthesizer chip with patches, samples and drum kits, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to.
+made of, effects for buses, a 16-operator synthesizer chip with patches, samples and drum kits, music written as code
+and its sequencer, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to.
 
 The library depends only on `Loom.Audio` and the BCL. The Loom SDK doesn't reference it for an app: an app or test
 project that wants it references it itself.
@@ -360,3 +361,123 @@ chip.SetMacro(guitar, new Macro(1), 0.6f);
 
 Feedback and the filter are each about a fifth of a voice's cost: both are recursions, each sample waiting on the one
 before.
+
+## 9. Music: `Loom.Audio.Synth.Music`
+
+Music written as code, played on a chip by a sequencer on the audio clock. A song is a method that builds new data each
+time it is called, so `dotnet watch` can rebuild it and `MusicPlayer.Swap` play the new one without a break:
+
+```csharp
+static class RacePark
+{
+	public static Song Build()
+	{
+		var song = new Song("race park") { Tempo = 128, Scale = Scale.Minor(Note.E) };
+		var guitars = song.Group("guitars", Fx.Distortion(24, cabinet: Cabinet.FourByTwelve));
+		var drums = song.Track("drums", Kits.Rock).Humanise(4, 0.1f);
+		var bass = song.Track("bass", Patches.PickedBass).Octave(2);
+		var rhythm = song.Track("rhythm", Patches.ElectricGuitar, guitars).Octave(3);
+		rhythm.Macro(Macros.Drive).Follow(Cues.Intensity, 0.2f, 1f);
+
+		var verse = song.Section("verse", 4, "i | VI | III | VII");
+		verse.Play(drums, Beat.Eighths((Kit.Kick, "x... x.x."), (Kit.Snare, "..x. ..x."), (Kit.HatClosed, "xxxx xxxx")))
+			.EndWith(Beat.Sixteenths((Kit.TomHigh, "xxxx ...."), (Kit.TomLow, ".... xxxx"), (Kit.Snare, "........ ..xX")));
+		verse.Play(bass, Line.Eighths("1 1 . 1 5, 1 . 1").OverChords());
+		verse.Play(rhythm, Strum.Eighths("D.DU .UDU").Voicing(Voicing.Power)).When(Cues.Intensity.Above(0.4f));
+
+		var chorus = song.Section("chorus", 4, "VI VII | i | VI VII | i");
+		chorus.Play(drums, Beat.Eighths((Kit.Kick, "x.x. x.x."), (Kit.Snare, "..X. ..X."), (Kit.Crash, "x... ....")));
+		chorus.Play(bass, Line.Eighths("1 - 1 - 1 1 5, 1").OverChords());
+		song.Order(verse, verse, chorus);
+		return song;
+	}
+}
+```
+
+### Scales and chords
+
+A `Scale` is a root and its steps: `Major`, `Minor`, `Dorian`, `Phrygian`, `Lydian`, `Mixolydian`, `HarmonicMinor`,
+`PentatonicMajor`, `PentatonicMinor`, `Blues`, or `Scale.Of(root, name, steps…)`. Music is written in its degrees:
+`Degree(1)` is the root, 8 the octave above, 0 the step below. A player plays a song in its own scale or another
+(`Play(song, Scale.Major(Note.G))`), which moves every note and no drum hit.
+
+A `Chord` is a Roman numeral, its case meaning nothing (the scale decides major or minor): `i`, `VI5`, `bVII`, `V7`,
+`ivsus4`. Flats and sharps go first; the suffixes are `M`, `m`, `5`, `sus2`, `sus4`, `7`, `dim`. With none, the scale's
+own triad on that degree, diminished included. A section's chords are bars separated by `|`, each one chord, or two or
+four sharing the bar: `"i | VI | III VII | i"`.
+
+### The notations
+
+A mistake in any of them throws a `NotationException` when the part is placed, quoting the text and saying where:
+`Line "1 2 3 4 5 6 7": bar 1 has 7 steps; a bar of 4/4 in eighths has 8 (column 13)`. Every bar must be whole.
+
+**`Line`**: notes by degree, a step a token (`Quarters`, `Eighths`, `Sixteenths`, `Triplets`).
+
+| Token | Meaning |
+|---|---|
+| `1` to `9` | That degree; 8 is the octave above 1 |
+| `'` or `,` after it | Up or down an octave, each |
+| `b` or `#` before it | Down or up a semitone, each |
+| `^` first | An accent: velocity 1, where a note has 0.8 |
+| `~` last | A slide: the note runs its full length into the next (a mono patch glides) |
+| `-` | Hold the note before a step more |
+| `.` | Rest |
+| `\|` | The end of a bar |
+
+A note that doesn't slide sounds 90% of its length, so repeated notes are heard as several. `OverChords()` makes degree 1
+the root of each bar's chord (a bass line that follows the chords); `Octave(n)` moves the whole line.
+
+**`Beat`**: drums on a grid, a row a piece (`Eighths`, `Sixteenths`, `Triplets`): `x` a hit (0.75), `X` an accent (1),
+`o` a ghost note (0.35), `.` a rest; spaces and `|` are for reading. Every row is as long.
+
+**`Strum`**: chords across a guitar's strings, a step a character (`Quarters`, `Eighths`, `Sixteenths`), each chord the
+section's at that step.
+
+| Character | Meaning |
+|---|---|
+| `D` | Down, low string to high (0.8) |
+| `U` | Up, the top four strings, high to low (0.7) |
+| `d`, `u` | The same, softer (0.5) |
+| `x` | A muted chuck: every string for 30 ticks |
+| `.` | Let ring |
+| `_` | Stop the strings |
+
+A strum rings until the next character that isn't `.`. `Voicing(Open)` lays the chord as a guitar plays it in the first
+frets (`Power` and `Triad` too); `Spread(ms)` sets the time between strings (12 ms).
+
+### Sections, tracks and placements
+
+A track is a patch or a kit, with its octave (degree 1's, 4 unless set), level, pan, `Humanise(timingMs, velocity)` (each
+note up to that late, never early, the same every time), `Swing(ratio)` (0.667 a triplet feel) and macros, each
+following a cue or held. Tracks share effects through groups (`Fx` makes the effects). A section is some bars long over
+its chords; `section.Play(track, part)` places a part in it, repeated through the section if shorter, cut at its end if
+longer. A placement can be `Named`, play only `When` a condition holds, follow a cue's `Level`, and `EndWith` a fill that
+takes the section's last bar each pass.
+
+`Order(a, a, b)` plays sections in turn, then from the first again; `Conduct(c => …)` chooses the next one in code a beat
+before each section ends, from the `Conductor`'s current section, its repeats and the cues. With neither, the first
+section loops.
+
+### Cues and conditions
+
+A `Cue` is a level the game sets (`music.Set(Cues.Intensity, speed / topSpeed)`); a `Cue<T>` a choice of an enum's
+values (`music.Set(Cues.Biome, Biome.Forest)`). A cue is known by its object, so a game keeps its cues in static fields
+and every song uses those; one a song doesn't use is remembered for the next. Conditions are `cue.Above(x)`,
+`cue.Below(x)`, `choice.Is(value)`, combined with `&`, `|` and `!`. **`Above(x)` turns true at x and false again only
+below x − 0.05** (`Below` mirrors it), so a part doesn't flap while a cue hovers.
+
+**`OnBar()` against `OnPhrase()`.** An on-bar placement (the default) comes and goes at any bar line as its condition
+changes. An on-phrase one is asked only where its part starts over, and once in plays that pass out: a four-bar melody
+never starts halfway.
+
+### The player
+
+`MusicPlayer` plays one song at a time on a bus, a new one crossfading over the last; `Update()` once a frame. `Position`
+says the section, bar and beat; `Jump`, `LoopSection`, `Mute`, `Solo`, `SetTrackGain` and `Force` (a placement held on or
+off) steer it; `IsActive` and `TrackPeak` read it, for a workbench. **`Swap(song)`** takes the song rebuilt at the next
+bar line, in the scale playing, carrying on in the section of the same name at the same bar (or the first section if that
+name is gone), at the new tempo; the absolute bar keeps counting.
+
+The sequencer splits each block at every event, bar line and section end and hands the chip its notes between slices, so
+timing is exact to the frame. It allocates nothing once playing. **Cost:** a song of eight tracks (a kit, a bass and six
+four-operator parts in eighths) renders at 31× real time on a Snapdragon X laptop.

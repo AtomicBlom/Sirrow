@@ -27,12 +27,37 @@ internal sealed class ChipCore
 	{
 		_options = options;
 		_instruments = new ChipInstrumentState?[options.MaxInstruments];
+
+		InstrumentPeak = new float[options.MaxInstruments];
 	}
 
 	public bool IsPrepared => _rate > 0;
 	public int SampleRate => _rate;
 	public ChipStats Stats => new(_activeVoices, _activeOperators, _stolenVoices);
 	public IReadOnlyList<ChipVoice> Voices => _voices;
+
+	// How many gain slots a core has
+	public const int GainSlotCount = 64;
+
+	// Gains a voice follows while it sounds (a song part's level), each 1 until set: a note on or hit names one by
+	// ChipEvent.GainSlot. Written by whoever drives the core, on the audio thread
+	public readonly float[] GainSlots = Filled(GainSlotCount, 1f);
+
+	// Per instrument, the loudest of its voices since ClearPeaks, after their gain, before the group's effects
+	public float[] InstrumentPeak { get; private set; } = [];
+
+	// The instruments' peaks back to 0, to measure from here: once an audio block
+	public void ClearPeaks() => Array.Clear(InstrumentPeak);
+
+	// An instrument as the core holds it, for a sequencer that sets its gain, mute and macros directly
+	public ChipInstrumentState? Instrument(int index) => _instruments[index];
+
+	private static float[] Filled(int count, float value)
+	{
+		var array = new float[count];
+		Array.Fill(array, value);
+		return array;
+	}
 
 	/// <summary>Allocates the voices, buffers and effects for <paramref name="rate"/>. Once.</summary>
 	public void Prepare(int rate)
@@ -110,7 +135,7 @@ internal sealed class ChipCore
 
 	private void NoteOn(in ChipEvent e)
 	{
-		if (_instruments[e.Instrument] is not { Patch: { } patch } instrument)
+		if (_instruments[e.Instrument] is not { Patch: { } patch } instrument || instrument.Muted)
 			return;
 		if (patch.Mono)
 			foreach (var voice in _voices)
@@ -124,7 +149,7 @@ internal sealed class ChipCore
 
 	private void Hit(in ChipEvent e)
 	{
-		if (_instruments[e.Instrument] is not { Kit: { } kit } instrument || (uint)e.PieceIndex >= (uint)kit.Pieces.Count)
+		if (_instruments[e.Instrument] is not { Kit: { } kit } instrument || instrument.Muted || (uint)e.PieceIndex >= (uint)kit.Pieces.Count)
 			return;
 		var piece = kit.Pieces[e.PieceIndex];
 		var take = piece.Patch is null ? instrument.PickTake(e.PieceIndex, e.Velocity) : null;
@@ -213,7 +238,7 @@ internal sealed class ChipCore
 					voice.Release(++_released);
 			}
 			var group = voice.Instrument!.Group;
-			var ended = voice.Render(n, _scratch, _groupLeft[group], _groupRight[group], _spaceLeft, _spaceRight, _echoLeft, _echoRight);
+			var ended = voice.Render(n, _scratch, _groupLeft[group], _groupRight[group], _spaceLeft, _spaceRight, _echoLeft, _echoRight, GainSlots);
 			if (voice.HasPending && voice.Fade <= 0f)
 			{
 				var pending = voice.Pending;
@@ -230,6 +255,9 @@ internal sealed class ChipCore
 			}
 			else if (ended && !voice.HasPending)
 				voice.Active = false;
+			var index = voice.InstrumentIndex;
+			if ((uint)index < (uint)InstrumentPeak.Length && voice.LastPeak > InstrumentPeak[index])
+				InstrumentPeak[index] = voice.LastPeak;
 			if (voice.Active)
 			{
 				activeVoices++;
