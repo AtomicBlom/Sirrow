@@ -1,12 +1,15 @@
 using Loom.Audio;
+using Loom.Audio.Decoding.Flac;
 using Loom.Audio.Decoding.Vorbis;
 
 namespace Loom.Tests;
 
 /// <summary>
-/// Ogg Vorbis through the engine: clips decoded whole, and streams decoded as they play. Rendered offline, faster than
-/// real time, so each test tops the stream's ring up itself before each block (the streaming thread does too, under the
-/// same lock), which keeps the output deterministic.
+/// Ogg Vorbis and FLAC through the engine: clips decoded whole, and streams decoded as they play. Rendered offline,
+/// faster
+/// than real time, so each test tops the stream's ring up itself before each block (the streaming thread does too,
+/// under
+/// the same lock), which keeps the output deterministic.
 /// </summary>
 public class AudioStreamTests
 {
@@ -83,6 +86,57 @@ public class AudioStreamTests
 			output[expected.Length + i].ShouldBe(expected[i], 1e-6f);
 		output[^1].ShouldBe(expected[1999], 1e-6f); // into the third time round
 		stream.IsPlaying.ShouldBeTrue();
+	}
+
+	private static byte[] Flac(string name) => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "AudioFixtures", name + ".flac"));
+
+	private static float[] DecodedFlac(string name)
+	{
+		var decoder = new FlacDecoder(new MemoryStream(Flac(name)));
+		var samples = new float[decoder.TotalFrames * decoder.Channels];
+		decoder.Read(samples).ShouldBe((int)decoder.TotalFrames);
+		return samples;
+	}
+
+	[Test]
+	public void LoadFlac_makes_a_clip_of_the_whole_file()
+	{
+		using var engine = new AudioEngine(new OfflineAudioDevice(44_100, Block));
+
+		var clip = engine.LoadFlac(Flac("flac-stereo-44k"));
+
+		clip.Channels.ShouldBe(2);
+		clip.Frames.ShouldBe(11_025);
+		clip.Samples.ShouldBe(DecodedFlac("flac-stereo-44k"));
+	}
+
+	[Test]
+	public void A_FLAC_file_streams_and_loops_as_an_Ogg_one_does()
+	{
+		var device = new OfflineAudioDevice(44_100, Block);
+		using var engine = new AudioEngine(device);
+		using var stream = engine.OpenStream(Flac("flac-fixed-odd"), loop: true); // told from Ogg by its first bytes
+		var expected = DecodedFlac("flac-fixed-odd");
+
+		engine.Play(stream);
+		var output = Play(engine, device, stream, 8_820 * 2 + 1000);
+
+		for (var i = 0; i < expected.Length; i++)
+		{
+			output[i].ShouldBe(expected[i], 1e-6f);
+			output[expected.Length + i].ShouldBe(expected[i], 1e-6f);
+		}
+		stream.IsPlaying.ShouldBeTrue();
+	}
+
+	[Test]
+	public void FLAC_the_engine_cant_play_throws()
+	{
+		using var engine = new AudioEngine(new OfflineAudioDevice(48_000, Block));
+
+		Should.Throw<NotSupportedException>(() => engine.LoadFlac(Flac("flac-surround")));
+		Should.Throw<NotSupportedException>(() => engine.OpenStream(Flac("flac-surround")));
+		Should.Throw<InvalidDataException>(() => engine.LoadFlac(Ogg("stereo-44k")));
 	}
 
 	[Test]

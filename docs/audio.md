@@ -89,6 +89,7 @@ A clip is sound decoded into memory, ready to play any number of times at once: 
 ```csharp
 var hit = Audio.LoadWav(ReadContent("sounds/hit.wav"));            // a WAV file's bytes
 var step = Audio.LoadOgg(ReadContent("sounds/step.ogg"));          // an Ogg Vorbis file's bytes
+var bell = Audio.LoadFlac(ReadContent("sounds/bell.flac"));        // a FLAC file's bytes
 var beep = Audio.CreateClip(samples, channels: 1, sampleRate: 44_100); // samples the app made, -1..1
 ```
 
@@ -98,7 +99,9 @@ var beep = Audio.CreateClip(samples, channels: 1, sampleRate: 44_100); // sample
 - `LoadOgg` decodes an Ogg Vorbis file whole, mono or stereo. A file with more channels throws
   `NotSupportedException`, and bytes that aren't Ogg Vorbis, or are damaged, throw `InvalidDataException`. For music,
   stream instead (below): a clip holds every decoded sample, ten times the file's size or more.
-- Both convert the clip to the engine's rate as it loads, so playing it never resamples (a pitch other than 1 aside).
+- `LoadFlac` decodes a FLAC file whole, mono or stereo, at any bit depth from 4 to 32. FLAC is lossless, at about half
+  the size of the same audio as WAV: for sounds whose detail Vorbis would smear. The same exceptions apply.
+- All of them convert the clip to the engine's rate as it loads, so playing it never resamples (a pitch other than 1 aside).
   The conversion is a 4-point Hermite curve, which doesn't filter on the way down: a 96 kHz clip loaded at 48 kHz can
   alias faintly. Supply clips at the engine's rate where that matters.
 - **Any thread may make a clip.** Decode on a loading thread (`ReadContentAsync`) and play on the frame thread.
@@ -106,8 +109,8 @@ var beep = Audio.CreateClip(samples, channels: 1, sampleRate: 44_100); // sample
 
 ### Streams
 
-Music is streamed: decoded as it plays, from an Ogg Vorbis file held compressed. An `AudioStream` is a source, so it
-plays, fades, pans and stops like one.
+Music is streamed: decoded as it plays, from an Ogg Vorbis or FLAC file held compressed. `OpenStream` tells which from
+the file's first bytes. An `AudioStream` is a source, so it plays, fades, pans and stops like one.
 
 ```csharp
 _theme = Audio.OpenStream(ReadContent("music/theme.ogg"), loop: true);
@@ -118,7 +121,8 @@ _theme.Dispose(); // once it has faded, or when the game is done with it
 ```
 
 - **Each play starts from the beginning.** A looping stream joins its end to its start without a gap, to the sample:
-  the file's length is exactly what was encoded (its last page's granule position says so).
+  the file's length is exactly what was encoded (an Ogg file's last page's granule position says so; a FLAC file's
+  frames hold exactly its samples).
 - **Decoding never happens on the audio thread.** A streaming thread of the engine's decodes about half a second
   ahead into a lock-free ring, waking every 10 ms, and the audio thread reads the ring. In the browser, where the mix
   runs on the frame thread, `Audio.Update()` decodes ahead instead. A play decodes the first 100 ms on the calling
@@ -128,16 +132,24 @@ _theme.Dispose(); // once it has faded, or when the game is done with it
 - `OpenStream(byte[])` takes the file's bytes, as `ReadContent` gives them. `OpenStream(Stream)` reads a file stream as
   it plays, off the audio thread; a stream that can't seek (an Android asset's) is read into memory first, so that it
   can loop and play again. The `AudioStream` owns the stream and closes it.
-- Opening a file checks its headers, so a file that isn't Ogg Vorbis throws there. Damage further in throws
-  `InvalidOperationException` (the decoder's exception inside it) from the next `Audio.Update()`, and the stream stops.
-- Decoding costs little: about 270 times real time for 44.1 kHz stereo on a Snapdragon X core, so a stream takes well
-  under 1% of a core.
+- Opening a file checks its headers, so a file that is neither Ogg Vorbis nor FLAC throws there. Damage further in
+  throws `InvalidOperationException` (the decoder's exception inside it) from the next `Audio.Update()`, and the stream
+  stops.
+- Decoding costs little: Vorbis and FLAC both decode at over 250 times real time for 44.1 kHz stereo on a Snapdragon X
+  core, so a stream takes well under 1% of a core.
 - `Dispose` stops a playing stream at once and closes its file. Disposing the engine closes every stream.
 
 The decoder is Loom's own, written from the Vorbis I specification: no native library, the same code on every
 platform, and it allocates nothing once a stream is open. It decodes what every encoder since libvorbis 1.0 writes,
 matching libvorbis to its last bit of 16-bit output (`VorbisDecoderTests`); floor type 0, which nothing has written
 since 2002, throws `NotSupportedException`.
+
+The FLAC decoder is Loom's own too, written from RFC 9639, and also allocates nothing once open. It is bit-exact: its
+tests check every decoded sample against the MD5 each file carries (`FlacDecoderTests`), and it decodes all of the
+IETF working group's conformance files with samples to check, 32-bit and 768 kHz included. It checks every frame's
+checksums, so a damaged file throws rather than playing noise. It skips ID3 tags before and after the audio. It
+refuses (`NotSupportedException`) a file that changes its rate or channel count partway, and doesn't read FLAC inside
+Ogg or a file that starts without its `fLaC` header.
 
 ---
 
@@ -463,14 +475,14 @@ whenever the host pumps it), and it pauses and resumes on request.
 An `AudioEngine` also works on its own, over any `IAudioDevice`. `OfflineAudioDevice` renders only when asked, on the
 caller's thread: for tests, for rendering to a file faster than real time, and for a host that pumps audio itself.
 `Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioDuckTests`, `Audio3DTests`, `AudioStreamTests`, `AudioEventQueueTests`,
-`WavDecoderTests`, `VorbisDecoderTests`), and the real
+`WavDecoderTests`, `VorbisDecoderTests`, `FlacDecoderTests`), and the real
 SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is missing.
 
 ---
 
 ## 8. Not built yet
 
-- Decoders beyond WAV and Ogg Vorbis (FLAC, Opus).
+- Decoders beyond WAV, Ogg Vorbis and FLAC (Opus).
 - 3D beyond stereo panning: HRTF (above and behind), occlusion, reverb zones, and sound cones.
 - An exclusive-mode WASAPI path below shared mode's 10 ms on Windows.
 

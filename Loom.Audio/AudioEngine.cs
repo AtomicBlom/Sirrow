@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 
 using Loom.Audio.Decoding;
+using Loom.Audio.Decoding.Flac;
 using Loom.Audio.Decoding.Vorbis;
 using Loom.Audio.Mixing;
 
@@ -564,9 +565,19 @@ public sealed class AudioEngine : IDisposable
 	/// </summary>
 	/// <exception cref="InvalidDataException">The bytes aren't Ogg Vorbis, or are damaged.</exception>
 	/// <exception cref="NotSupportedException">The file has more than two channels.</exception>
-	public AudioClip LoadOgg(ReadOnlySpan<byte> ogg)
+	public AudioClip LoadOgg(ReadOnlySpan<byte> ogg) => LoadDecoded(new VorbisDecoder(new MemoryStream(ogg.ToArray(), writable: false)));
+
+	/// <summary>
+	/// A clip of a FLAC file's contents, decoded whole and converted to the engine's rate. FLAC is lossless, about half the
+	/// size of the same audio as WAV; streamed (<see cref="OpenStream(byte[], bool)"/>) it holds only the compressed file.
+	/// Any thread may call it.
+	/// </summary>
+	/// <exception cref="InvalidDataException">The bytes aren't FLAC, or are damaged.</exception>
+	/// <exception cref="NotSupportedException">The file has more than two channels, or changes its rate or channels partway.</exception>
+	public AudioClip LoadFlac(ReadOnlySpan<byte> flac) => LoadDecoded(new FlacDecoder(new MemoryStream(flac.ToArray(), writable: false)));
+
+	private AudioClip LoadDecoded(IStreamDecoder decoder)
 	{
-		var decoder = new VorbisDecoder(new MemoryStream(ogg.ToArray(), writable: false));
 		CheckStreamChannels(decoder);
 		var samples = new float[decoder.SampleRate * decoder.Channels];
 		var count = 0;
@@ -583,50 +594,51 @@ public sealed class AudioEngine : IDisposable
 	}
 
 	/// <summary>
-	/// Opens an Ogg Vorbis file to stream: decoded as it plays, holding only the compressed bytes. Play it as any source,
-	/// with <see cref="Play(AudioSource, AudioBus, float, float)"/>; each play starts from the beginning. Dispose it when done.
+	/// Opens an Ogg Vorbis or FLAC file to stream (which, it tells from the file's first bytes): decoded as it plays, holding
+	/// only the compressed bytes. Play it as any source, with <see cref="Play(AudioSource, AudioBus, float, float)"/>; each
+	/// play starts from the beginning. Dispose it when done.
 	/// </summary>
-	/// <param name="ogg">The file's bytes, as <c>ReadContent</c> gives them.</param>
+	/// <param name="file">The file's bytes, as <c>ReadContent</c> gives them.</param>
 	/// <param name="loop">Whether it starts over at its end, without a gap, until stopped.</param>
-	/// <exception cref="InvalidDataException">The bytes aren't Ogg Vorbis, or are damaged.</exception>
+	/// <exception cref="InvalidDataException">The bytes are neither Ogg Vorbis nor FLAC, or are damaged.</exception>
 	/// <exception cref="NotSupportedException">The file has more than two channels.</exception>
-	public AudioStream OpenStream(byte[] ogg, bool loop = false)
+	public AudioStream OpenStream(byte[] file, bool loop = false)
 	{
-		ArgumentNullException.ThrowIfNull(ogg);
-		return OpenStream(new MemoryStream(ogg, writable: false), loop);
+		ArgumentNullException.ThrowIfNull(file);
+		return OpenStream(new MemoryStream(file, writable: false), loop);
 	}
 
 	/// <summary>
-	/// Opens an Ogg Vorbis file to stream from <paramref name="ogg"/>, which the stream then owns and closes. A file stream is
-	/// read as it plays, off the audio thread; a stream that can't seek (an Android asset's) is read into memory first, so
-	/// it can loop and play again.
+	/// Opens an Ogg Vorbis or FLAC file to stream from <paramref name="file"/>, which the stream then owns and closes. A file
+	/// stream is read as it plays, off the audio thread; a stream that can't seek (an Android asset's) is read into memory
+	/// first, so it can loop and play again.
 	/// </summary>
 	/// <inheritdoc cref="OpenStream(byte[], bool)"/>
-	public AudioStream OpenStream(Stream ogg, bool loop = false)
+	public AudioStream OpenStream(Stream file, bool loop = false)
 	{
 		CheckThread();
-		ArgumentNullException.ThrowIfNull(ogg);
-		if (!ogg.CanSeek)
+		ArgumentNullException.ThrowIfNull(file);
+		if (!file.CanSeek)
 		{
 			var copy = new MemoryStream();
-			using (ogg)
-				ogg.CopyTo(copy);
+			using (file)
+				file.CopyTo(copy);
 			copy.Position = 0;
-			ogg = copy;
+			file = copy;
 		}
 
-		VorbisDecoder decoder;
+		IStreamDecoder decoder;
 		try
 		{
-			decoder = new VorbisDecoder(ogg);
+			decoder = StreamDecoders.Open(file);
 			CheckStreamChannels(decoder);
 		}
 		catch
 		{
-			ogg.Dispose();
+			file.Dispose();
 			throw;
 		}
-		var stream = new AudioStream(this, ogg, decoder, loop);
+		var stream = new AudioStream(this, file, decoder, loop);
 		_streams = [.. _streams, stream];
 		if (!_pumpStreams)
 		{
@@ -645,7 +657,7 @@ public sealed class AudioEngine : IDisposable
 		_streamer?.SetStreams(_streams);
 	}
 
-	private static void CheckStreamChannels(VorbisDecoder decoder)
+	private static void CheckStreamChannels(IStreamDecoder decoder)
 	{
 		if (decoder.Channels > 2)
 			throw new NotSupportedException($"The file has {decoder.Channels} channels: the engine plays mono and stereo.");

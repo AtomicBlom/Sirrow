@@ -1,10 +1,10 @@
-using Loom.Audio.Decoding.Vorbis;
+using Loom.Audio.Decoding;
 using Loom.Audio.Mixing;
 
 namespace Loom.Audio;
 
 /// <summary>
-/// Music decoded as it plays, rather than held decoded in memory as a clip is: an Ogg Vorbis file, opened with
+/// Music decoded as it plays, rather than held decoded in memory as a clip is: an Ogg Vorbis or FLAC file, opened with
 /// <see cref="AudioEngine.OpenStream(byte[], bool)"/> and played like any source, with
 /// <see cref="AudioEngine.Play(AudioSource, AudioBus, float, float)"/>. Each play starts from the beginning. A looping stream
 /// plays until stopped, its end joined to its start without a gap.
@@ -22,7 +22,7 @@ public sealed class AudioStream : AudioSource, IDisposable
 
 	private readonly AudioEngine _engine;
 	private readonly Stream _file;
-	private readonly VorbisDecoder _decoder;
+	private readonly IStreamDecoder _decoder;
 	private readonly SampleRing _ring;
 	private readonly float[] _chunk;
 	private readonly object _gate = new(); // between a play on the game thread and the decoding thread; never the audio thread
@@ -38,7 +38,7 @@ public sealed class AudioStream : AudioSource, IDisposable
 	private int _endFrame;
 	private volatile bool _disposed;
 
-	internal AudioStream(AudioEngine engine, Stream file, VorbisDecoder decoder, bool loop)
+	internal AudioStream(AudioEngine engine, Stream file, IStreamDecoder decoder, bool loop)
 	{
 		_engine = engine;
 		_file = file;

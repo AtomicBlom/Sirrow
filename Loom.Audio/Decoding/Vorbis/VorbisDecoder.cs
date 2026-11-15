@@ -6,7 +6,7 @@ namespace Loom.Audio.Decoding.Vorbis;
 /// without setting off a collection. It decodes every Vorbis I stream an encoder writes today; floor type 0, which no
 /// encoder has written since libvorbis 1.0 in 2002, is refused.
 /// </summary>
-internal sealed class VorbisDecoder
+internal sealed class VorbisDecoder : IStreamDecoder
 {
 	private readonly OggPacketReader _ogg;
 	private readonly VorbisBitReader _bits = new();

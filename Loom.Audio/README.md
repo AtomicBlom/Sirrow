@@ -81,6 +81,6 @@ and neither side allocates once running (`AudioEngineTests.The_mix_allocates_not
 
 ## What isn't here yet
 
-- Decoders beyond WAV and Ogg Vorbis (FLAC, Opus).
+- Decoders beyond WAV, Ogg Vorbis and FLAC (Opus).
 - 3D beyond stereo panning: HRTF, occlusion, reverb zones, sound cones.
 - A direct low-latency WASAPI path below the 10 ms shared-mode period on Windows.

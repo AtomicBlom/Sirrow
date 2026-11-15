@@ -65,3 +65,4 @@
 # Audio test fixtures: encoded audio and raw PCM, never line-ending converted
 *.ogg binary
 *.s16 binary
+*.flac binary
