@@ -52,7 +52,8 @@ public sealed class AudioEngine : IDisposable
 	private readonly int[] _busParents;
 	private readonly bool[] _duckEnabled;
 	private int _duckCount;
-	private readonly float _unfocusedVolume;
+	private float _unfocusedVolume;
+	private bool _focused = true;
 	// Open streams, replaced whole as they open and close, and what keeps their rings topped up: a thread of their own, or
 	// in the browser (where the mix itself runs on the frame thread) Update
 	private AudioStream[] _streams = [];
@@ -247,14 +248,37 @@ public sealed class AudioEngine : IDisposable
 	}
 
 	/// <summary>
-	/// Tells the engine whether the app has focus: out of it, the whole output fades to <see cref="AudioOptions.UnfocusedVolume"/>
+	/// Tells the engine whether the app has focus: out of it, the whole output fades to <see cref="UnfocusedVolume"/>
 	/// over a quarter of a second, and back on return. A <c>LoomApplication</c> calls it as its window or tab gains and loses
 	/// focus; the game's own volumes are untouched.
 	/// </summary>
 	public void SetFocused(bool focused)
 	{
 		CheckThread();
+		_focused = focused;
 		Send(new AudioCommand { Kind = AudioCommandKind.OutputVolume, A = focused ? 1f : _unfocusedVolume, Frames = FramesFor(0.25f) });
+	}
+
+	/// <summary>
+	/// The output's volume while the app is out of focus, a linear gain: <see cref="AudioOptions.UnfocusedVolume"/> until
+	/// <see cref="SetUnfocusedVolume"/> changes it. It multiplies with every bus's volume, the master's included.
+	/// </summary>
+	public float UnfocusedVolume => _unfocusedVolume;
+
+	/// <summary>
+	/// Changes the output's volume while the app is out of focus, for a setting the player changes as the game runs. In
+	/// focus nothing is heard to change; out of focus the output fades to it over <paramref name="fadeSeconds"/>.
+	/// </summary>
+	/// <param name="volume">A linear gain, zero or more: 1 leaves the app as loud out of focus as in it, 0 silences it.</param>
+	/// <param name="fadeSeconds">How long the output takes to reach it when the app is out of focus now.</param>
+	public void SetUnfocusedVolume(float volume, float fadeSeconds = 0.05f)
+	{
+		CheckThread();
+		CheckVolume(volume);
+		var frames = FramesFor(fadeSeconds);
+		_unfocusedVolume = volume;
+		if (!_focused)
+			Send(new AudioCommand { Kind = AudioCommandKind.OutputVolume, A = volume, Frames = frames });
 	}
 
 	/// <summary>
