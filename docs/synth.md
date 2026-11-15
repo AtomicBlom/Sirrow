@@ -2,7 +2,8 @@
 
 What [`Loom.Audio.Synth`](../Loom.Audio.Synth) adds over [the mixer](audio.md): the DSP building blocks a source is
 made of, effects for buses, a 16-operator synthesizer chip with patches, samples and drum kits, music written as code
-and its sequencer, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to.
+and its sequencer, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to. Beside
+it, `Loom.Audio.Workbench` is a window to write the music in (section 10).
 
 The library depends only on `Loom.Audio` and the BCL. The Loom SDK doesn't reference it for an app: an app or test
 project that wants it references it itself.
@@ -481,3 +482,78 @@ name is gone), at the new tempo; the absolute bar keeps counting.
 The sequencer splits each block at every event, bar line and section end and hands the chip its notes between slices, so
 timing is exact to the frame. It allocates nothing once playing. **Cost:** a song of eight tracks (a kit, a bass and six
 four-operator parts in eighths) renders at 31× real time on a Snapdragon X laptop.
+
+---
+
+## 10. The workbench: `Loom.Audio.Workbench`
+
+A window for writing music in code, kept apart from `Loom.Audio.Synth` because it is UI (SUIsei) and the synth is not.
+A song stays C# in the game's own files. The workbench plays it, shows it, lets you steer it, and plays it again each time
+the file is saved under `dotnet watch`. [`samples/HelloSynth`](../samples/HelloSynth) is the sample: a demo song, four
+patches and a kit.
+
+What it shows:
+- **The transport.** The songs, play and stop, the position (section, bar, beat), the tempo and the scale.
+- **The sections**, one button each (a click jumps there at the next bar), and a loop on the section playing.
+- **The cues**, the catalog's whether the song uses them: a slider for a `Cue`, a button per value for a `Cue<T>`.
+- **The tracks.** Each with mute, solo, a gain and a level meter, and under it its placements: whether each is playing,
+  its condition, and auto, on and off to force it.
+- **The patch bench.** A patch or a kit, played from a two-octave keyboard, the computer's keys or the kit's pads, with
+  the patch's macros as sliders.
+- **The pattern** of the part selected, drawn as notes over the bar.
+- **A banner** with the error of a song that didn't build, while the last one plays on.
+
+**The catalog.** A game hands the workbench a `WorkbenchCatalog`: its songs, patches and kits, each a name and a
+factory, and its cues. The factories matter. Hot reload changes what a factory returns, so the workbench calls it again
+after every edit rather than keeping what it made.
+
+**Hosting it.** HelloSynth's app, cut to what matters:
+
+```csharp
+protected override void Configure(AppOptions options) => options.Audio = new AudioOptions();
+
+protected override void LoadContent()
+{
+	_ui = new UIHost();
+	_painter = UIPainter.Create(Engine, _ui);
+	_view = _ui.CreateRoot(UILayer.Default);
+	_workbench = new Workbench(Audio, Audio.CreateBus("music"), DemoCatalog.Make());
+	if (Load() is { } state)
+		_workbench.RestoreState(state);              // where it was before a restart
+	_view.Root.Content = new WorkbenchView(_workbench.ViewModel);
+	PushInputLayer(new SUIseiInputLayer(_ui));
+	// ... a graph with the UI pass over the backbuffer
+}
+
+protected override void Update(FrameTime time)
+{
+	_workbench.HandleInput(Input);                   // the computer's keys
+	_workbench.Update(time.DeltaSeconds);            // the player, the meters, and a rebuild after an edit
+	// ... CaptureState() saved to a file when it changes
+}
+```
+
+`WorkbenchView.TransportExtras` is a panel at the end of the transport bar for the host's own controls (RubberTrack's
+Studio puts a toggle for a recorded car's sound there). `CaptureState` and `RestoreState` keep the song, whether it
+played and in which section, the loop, a scale played in place of the song's, the cues, the mutes, solos, gains and
+forced placements, and the bench's patch, kit, octave and velocity, all by name, as JSON (`WorkbenchStateJson`).
+
+**Keys:** `A W S E D F T G Y H U J K` play an octave of notes on the patch bench, C to
+C, as a piano's keys lie. `Z` and `X` move it down and up an octave. `Space` plays or stops, and `1` to `9` jump to a
+section.
+
+### What hot reload can and can't do
+
+- **A song, a patch and a kit are built by a method or a property, every time.** A `static readonly` field is
+  initialised once and hot reload never runs its initialiser again.
+- Edits inside a method's body apply live: notes, chords, levels, conditions, a patch's numbers.
+- Adding a method, a property, a track or a section usually applies live too.
+- Some edits can't (a changed lambda capture, a changed type's shape). `dotnet watch` then asks to restart, or restarts
+  by itself when `DOTNET_WATCH_RESTART_ON_RUDE_EDIT` is `true`. The app comes back playing where it was, from its state
+  file.
+- A song that fails to build after an edit shows its error in the banner, and the old one plays on. Fix it and save.
+- A change to a `.xaml` view reloads the view (SUIsei's own hot reload). The views build their rows in code rather than
+  with an `ItemsControl`, and each puts its rows back after a reload.
+
+After an edit, the song rebuilt is swapped in at the next bar (`MusicPlayer.Swap`), in the same section at the same bar.
+The mutes, solos, gains and forced placements carry over by name.
