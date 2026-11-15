@@ -72,6 +72,8 @@ Every value is a request the platform meets as closely as it can. `Audio.Device`
 | `MaxVoices` | 64 | Voices playing at once, clips and sources together. A play past it is dropped (see [Voices](#3-voices)). |
 | `MaxBuses` | 16 | Buses, the master bus included. |
 | `MaxDucks` | 8 | Ducks (see [Ducking](#ducking)). |
+| `MaxEffectsPerBus` | 8 | Effects on one bus (see [Effects and sends](#effects-and-sends)). |
+| `MaxSends` | 16 | Sends between buses. |
 | `SpeedOfSound` | 343 | The speed of sound in the game's units a second, for the Doppler shift of 3D voices: 343 for metres, 1125 for feet. |
 | `UnfocusedVolume` | 1 (no change) | The output's volume while the app is out of focus: another window in front, the browser tab hidden, the app behind another on Android. The whole mix fades to it over a quarter second and back on return. 0 silences an app in the background. It is a gain of its own after the master bus, so the game's volumes, the master's included, are left alone, and it multiplies with them. `Audio.SetUnfocusedVolume` changes it while the app runs, for a setting the player chooses. |
 | `CommandCapacity` | 4096 | Commands (plays, stops, volume changes) waiting for the audio thread at once. Past it the engine throws rather than drop one. |
@@ -286,6 +288,40 @@ Audio.SetDuckEnabled(duck, false); // music back up, however loud the dialogue
 - Make ducks at load, like buses. There are at most `AudioOptions.MaxDucks`, and none is removed: `SetDuckEnabled`
   turns one off, and its target comes back up at its release rate.
 
+### Effects and sends
+
+An effect changes the sound passing through a bus: a reverb, a limiter, a distortion. Subclass `AudioEffect`, write
+`Process`, and add it to a bus. A send mixes a share of one bus into another as well as into its parent, which is how
+several buses share one reverb.
+
+```csharp
+var space = Audio.CreateBus("space");          // made first: it receives sends
+var sfx = Audio.CreateBus("sfx");
+Audio.AddEffect(space, new Reverb());          // Loom.Audio.Synth.Effects; Wet 1, Dry 0 suit a bus fed by sends
+var toSpace = Audio.AddSend(sfx, space, 0.1f);
+Audio.AddEffect(Audio.Master, new Limiter());
+
+Audio.SetSendLevel(toSpace, 0.4f, fadeSeconds: 0.2f); // more of the sound off the walls
+```
+
+- **The order within a bus is its effects, then its volume, then its ducks.** Effects run on everything mixed into
+  the bus, before its volume, so a reverb's tail is turned down by the bus's volume with everything else. They run in
+  the order added. On the master bus they run before the focus volume and the final clip.
+- **A send's target is made before the bus that sends.** Buses are mixed from the last made back to the first, so the
+  target is finished after the sender, with the sent sound in it. A send to a bus made later, to itself, or to a bus it
+  is already mixed into throws. The sound sent is the bus's after its effects, volume and ducks.
+- `Process` runs on the audio thread under the rules for a source's `Render` ([The rules for `Render`](#the-rules-for-render)):
+  size buffers in `OnPrepare`, which `AddEffect` calls on the game thread. Its controls are `AudioParameter` and
+  `SmoothedParameter` members of its own.
+- An effect instance belongs to one bus: adding it to a second throws. `AudioEffect.Prepare` and `Process` are public
+  so a synthesizer can run effects on groups of its own voices.
+- An effect that throws is skipped from then on, the sound passing unchanged, and the exception is thrown from the next
+  `Audio.Update`, as a source's is.
+- Add effects and sends at load. A bus holds at most `AudioOptions.MaxEffectsPerBus`, the engine at most
+  `AudioOptions.MaxSends`, and none is removed: `Bypass` turns an effect off, and a level of 0 silences a send.
+- `Loom.Audio.Synth`'s `Effects` namespace has a reverb, delay, chorus, compressor, limiter, EQ and distortion
+  (`docs/synth.md`, "Effects").
+
 ---
 
 ## 5. Sources
@@ -479,7 +515,7 @@ whenever the host pumps it), and it pauses and resumes on request.
 An `AudioEngine` also works on its own, over any `IAudioDevice`. `OfflineAudioDevice` renders only when asked, on the
 caller's thread: for tests, for rendering to a file faster than real time, and for a host that pumps audio itself.
 `Loom.Audio.Synth`'s `OfflineSession` wraps one, keeping what it renders ([the synthesis guide](synth.md)).
-`Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioDuckTests`, `Audio3DTests`, `AudioStreamTests`, `AudioEventQueueTests`,
+`Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioEffectTests`, `AudioDuckTests`, `Audio3DTests`, `AudioStreamTests`, `AudioEventQueueTests`,
 `WavDecoderTests`, `VorbisDecoderTests`, `FlacDecoderTests`), and the real
 SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is missing.
 

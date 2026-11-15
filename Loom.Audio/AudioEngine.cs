@@ -52,6 +52,11 @@ public sealed class AudioEngine : IDisposable
 	private readonly int[] _busParents;
 	private readonly bool[] _duckEnabled;
 	private int _duckCount;
+	// Effects per bus, and each send's level as last set
+	private readonly int[] _busEffects;
+	private readonly int _maxEffectsPerBus;
+	private readonly float[] _sendLevels;
+	private int _sendCount;
 	private float _unfocusedVolume;
 	private bool _focused = true;
 	// Open streams, replaced whole as they open and close, and what keeps their rings topped up: a thread of their own, or
@@ -73,6 +78,8 @@ public sealed class AudioEngine : IDisposable
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxBuses, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.CommandCapacity, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegative(options.MaxDucks, nameof(options));
+		ArgumentOutOfRangeException.ThrowIfNegative(options.MaxEffectsPerBus, nameof(options));
+		ArgumentOutOfRangeException.ThrowIfNegative(options.MaxSends, nameof(options));
 		if (!float.IsFinite(options.SpeedOfSound) || options.SpeedOfSound <= 0f)
 			throw new ArgumentOutOfRangeException(nameof(options), options.SpeedOfSound, "AudioOptions.SpeedOfSound is more than zero, in the game's units a second.");
 		if (!float.IsFinite(options.UnfocusedVolume) || options.UnfocusedVolume < 0f)
@@ -103,8 +110,13 @@ public sealed class AudioEngine : IDisposable
 		_duckEnabled = new bool[options.MaxDucks];
 		_unfocusedVolume = options.UnfocusedVolume;
 
+		_busEffects = new int[options.MaxBuses];
+		_maxEffectsPerBus = options.MaxEffectsPerBus;
+		_sendLevels = new float[options.MaxSends];
+
 		_spatial = new bool[options.MaxVoices];
-		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, options.MaxDucks, options.SpeedOfSound, _commands, _ended);
+		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, options.MaxDucks, options.MaxEffectsPerBus, options.MaxSends,
+			options.SpeedOfSound, _commands, _ended);
 		device.Start(_mixer);
 	}
 
@@ -245,6 +257,82 @@ public sealed class AudioEngine : IDisposable
 	{
 		CheckDuck(duck);
 		return _duckEnabled[duck.Index];
+	}
+
+	/// <summary>
+	/// Runs <paramref name="effect"/> on <paramref name="bus"/>, after any effects it already has: on everything mixed into
+	/// the bus, before its volume, so a reverb's tail follows the bus's volume with the rest. Add effects at load: a bus
+	/// holds at most <see cref="AudioOptions.MaxEffectsPerBus"/>, and none is removed (<see cref="AudioEffect.Bypass"/>
+	/// turns one off). On the master bus an effect runs before the focus volume and the final clip.
+	/// </summary>
+	/// <exception cref="InvalidOperationException">The bus is full, or the effect already belongs to a bus.</exception>
+	public void AddEffect(AudioBus bus, AudioEffect effect)
+	{
+		CheckThread();
+		CheckBus(bus);
+		ArgumentNullException.ThrowIfNull(effect);
+		if (_busEffects[bus.Index] == _maxEffectsPerBus)
+			throw new InvalidOperationException(
+				$"'{_busNames[bus.Index]}' already holds its {_maxEffectsPerBus} effects: raise AudioOptions.MaxEffectsPerBus for more.");
+		effect.Prepare(SampleRate);
+		Send(new AudioCommand { Kind = AudioCommandKind.AddEffect, Index = bus.Index, Payload = effect });
+		_busEffects[bus.Index]++;
+	}
+
+	/// <summary>
+	/// Mixes <paramref name="from"/> into <paramref name="to"/> at <paramref name="level"/>, as well as into its own parent:
+	/// a share of a bus sent to a reverb. The sound sent is the bus's after its effects, volume and ducks. Make sends at
+	/// load: there are at most <see cref="AudioOptions.MaxSends"/>, and none is removed (a level of 0 silences one).
+	/// </summary>
+	/// <param name="from">The bus sending.</param>
+	/// <param name="to">
+	/// The bus receiving. It must have been made before <paramref name="from"/> (buses are mixed from the last made back to
+	/// the first, so the receiver is finished after the sender), and must not be a bus <paramref name="from"/> already mixes into.
+	/// </param>
+	/// <param name="level">A linear gain: 1 sends the bus at its own level.</param>
+	public AudioSend AddSend(AudioBus from, AudioBus to, float level = 1f)
+	{
+		CheckThread();
+		CheckBus(from);
+		CheckBus(to);
+		CheckVolume(level);
+		if (from == to)
+			throw new ArgumentException("A bus can't send to itself.", nameof(to));
+		if (to.Index >= from.Index)
+			throw new ArgumentException(
+				$"The bus that receives a send is made before the bus that sends: make '{_busNames[to.Index]}' first.", nameof(to));
+		if (Contains(to.Index, from.Index))
+			throw new ArgumentException($"'{_busNames[from.Index]}' is already mixed into '{_busNames[to.Index]}'.", nameof(to));
+		if (_sendCount == _sendLevels.Length)
+			throw new InvalidOperationException($"The engine already holds its {_sendLevels.Length} sends: raise AudioOptions.MaxSends for more.");
+		var index = _sendCount;
+		Send(new AudioCommand { Kind = AudioCommandKind.AddSend, Index = index, Bus = from.Index, Frames = to.Index, A = level });
+		_sendCount++;
+		_sendLevels[index] = level;
+		return new AudioSend(index);
+	}
+
+	/// <summary>Moves <paramref name="send"/>'s level to <paramref name="level"/>, a linear gain, over <paramref name="fadeSeconds"/>.</summary>
+	public void SetSendLevel(AudioSend send, float level, float fadeSeconds = 0f)
+	{
+		CheckThread();
+		CheckSend(send);
+		CheckVolume(level);
+		Send(new AudioCommand { Kind = AudioCommandKind.SendLevel, Index = send.Index, A = level, Frames = FramesFor(fadeSeconds) });
+		_sendLevels[send.Index] = level;
+	}
+
+	/// <summary>The level last set on <paramref name="send"/> (where it is going, if it is still fading).</summary>
+	public float GetSendLevel(AudioSend send)
+	{
+		CheckSend(send);
+		return _sendLevels[send.Index];
+	}
+
+	private void CheckSend(AudioSend send)
+	{
+		if ((uint)send.Index >= (uint)_sendCount)
+			throw new ArgumentOutOfRangeException(nameof(send), send.Index, "No such send in this engine.");
 	}
 
 	/// <summary>
@@ -692,7 +780,7 @@ public sealed class AudioEngine : IDisposable
 	/// decoding threw. In the browser it also decodes ahead for the streams. A <c>LoomApplication</c> calls it once a frame;
 	/// an engine used on its own should too.
 	/// </summary>
-	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> threw on the audio thread, or an <see cref="AudioStream"/>'s file failed to decode (the inner exception); its voice was stopped.</exception>
+	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> or <see cref="AudioEffect"/> threw on the audio thread, or an <see cref="AudioStream"/>'s file failed to decode (the inner exception); its voice was stopped.</exception>
 	public void Update()
 	{
 		CheckThread();
@@ -705,7 +793,7 @@ public sealed class AudioEngine : IDisposable
 				throw new InvalidOperationException($"An audio stream failed to decode, and stopped: {failed.Message}", failed);
 		}
 		if (Interlocked.Exchange(ref _mixer.Fault, null) is { } fault)
-			throw new InvalidOperationException($"An audio source threw on the audio thread, and its voice was stopped: {fault.Message}", fault);
+			throw new InvalidOperationException($"An audio source or effect threw on the audio thread, and was stopped: {fault.Message}", fault);
 	}
 
 	/// <summary>Silences the device until <see cref="Resume"/>: the app has left the screen. Voices hold where they are.</summary>

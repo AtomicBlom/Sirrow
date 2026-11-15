@@ -73,6 +73,9 @@ Steer a source from the game with:
 - **`AudioEventQueue<T>`** — discrete events that must all arrive, in order (a note on, a note off). Lock-free, one
   thread posting and one taking.
 
+A bus can run **`AudioEffect`**s (`AddEffect`: a reverb, a limiter), under the same rules as `Render`, before its
+volume; and a **send** (`AddSend`) mixes a share of one bus into another made before it, as a reverb bus is fed.
+
 ## The threading model
 
 The engine is called from the thread that made it (the app's frame thread); a call from any other throws, except

@@ -30,6 +30,8 @@ internal sealed class AudioMixer : IAudioRenderer
 	private readonly float[] _scratchRight = new float[BlockFrames];
 	private readonly Duck[] _ducks;
 	private int _duckCount;
+	private readonly Send[] _sends;
+	private int _sendCount;
 	private GainRamp _output; // after the master bus: the app's focus volume, kept apart from the game's own master volume
 							  // The listener, as the game last set it: 3D voices are placed against it every block
 	private readonly float _speedOfSound;
@@ -48,10 +50,11 @@ internal sealed class AudioMixer : IAudioRenderer
 	private double _renderLoad;
 	private double _maxRenderLoad;
 
-	/// <summary>The first exception a source threw on the audio thread, for the game thread to throw again.</summary>
+	/// <summary>The first exception a source or effect threw on the audio thread, for the game thread to throw again.</summary>
 	public Exception? Fault;
 
-	public AudioMixer(int sampleRate, int maxVoices, int maxBuses, int maxDucks, float speedOfSound, AudioEventQueue<AudioCommand> commands, AudioEventQueue<int> ended)
+	public AudioMixer(int sampleRate, int maxVoices, int maxBuses, int maxDucks, int maxEffectsPerBus, int maxSends, float speedOfSound,
+			AudioEventQueue<AudioCommand> commands, AudioEventQueue<int> ended)
 	{
 		_sampleRate = sampleRate;
 		_speedOfSound = speedOfSound;
@@ -60,8 +63,9 @@ internal sealed class AudioMixer : IAudioRenderer
 		_voices = new Voice[maxVoices];
 		_buses = new Bus[maxBuses];
 		for (var i = 0; i < maxBuses; i++)
-			_buses[i] = new Bus();
+			_buses[i] = new Bus(maxEffectsPerBus);
 		_ducks = new Duck[maxDucks];
+		_sends = new Send[maxSends];
 		_output.SetNow(1f);
 	}
 
@@ -133,6 +137,13 @@ internal sealed class AudioMixer : IAudioRenderer
 		{
 			var bus = _buses[b];
 			FinishBus(bus, n);
+			// A send's target was made before its sender, so it has a lower index and is finished later in this loop
+			for (var s = 0; s < _sendCount; s++)
+			{
+				ref var send = ref _sends[s];
+				if (send.From == b)
+					AddRamped(bus, _buses[send.To], ref send.Level, n);
+			}
 			var parent = _buses[bus.Parent];
 			Add(bus.Left, parent.Left, n);
 			Add(bus.Right, parent.Right, n);
@@ -260,6 +271,20 @@ internal sealed class AudioMixer : IAudioRenderer
 					break;
 				case AudioCommandKind.VoiceVelocity:
 					_voices[command.Index].Velocity = new Vector3(command.A, command.B, command.C);
+					break;
+				case AudioCommandKind.AddEffect:
+					var target = _buses[command.Index];
+					target.Effects[target.EffectCount++] = (AudioEffect)command.Payload!;
+					break;
+				case AudioCommandKind.AddSend:
+					ref var sent = ref _sends[command.Index];
+					sent.From = command.Bus;
+					sent.To = command.Frames;
+					sent.Level.SetNow(command.A);
+					_sendCount = Math.Max(_sendCount, command.Index + 1);
+					break;
+				case AudioCommandKind.SendLevel:
+					_sends[command.Index].Level.Set(command.A, command.Frames);
 					break;
 				default:
 					throw new InvalidOperationException($"Unknown audio command {command.Kind}.");
@@ -425,10 +450,32 @@ internal sealed class AudioMixer : IAudioRenderer
 		}
 	}
 
-	// A bus whose voices and children are all in: its volume, its level (if a duck listens to it), then its ducks. The level
-	// is taken before the ducks, so two buses ducking each other don't hold each other down
-	private static void FinishBus(Bus bus, int n)
+	// A bus whose voices, children and sends are all in: its effects, its volume, its level (if a duck listens to it), then
+	// its ducks. The effects come first so a reverb's tail is turned down by the bus's volume with everything else. The
+	// level is taken before the ducks, so two buses ducking each other don't hold each other down
+	private void FinishBus(Bus bus, int n)
 	{
+		if (bus.EffectCount > 0)
+		{
+			var left = bus.Left.AsSpan(0, n);
+			var right = bus.Right.AsSpan(0, n);
+			for (var e = 0; e < bus.EffectCount; e++)
+			{
+				var effect = bus.Effects[e]!;
+				if (effect.Bypass || effect.Faulted)
+					continue;
+				try
+				{
+					effect.Process(left, right);
+				}
+				catch (Exception ex)
+				{
+					// The effect is skipped from now on and the game thread throws it from AudioEngine.Update
+					Interlocked.CompareExchange(ref Fault, ex, null);
+					effect.Faulted = true;
+				}
+			}
+		}
 		Ramp(bus.Left, bus.Right, ref bus.Volume, n);
 		if (bus.IsTrigger)
 		{
@@ -465,6 +512,22 @@ internal sealed class AudioMixer : IAudioRenderer
 			to[i] += from[i];
 	}
 
+	// Adds a bus into another at a gain ramped across the block
+	private static void AddRamped(Bus from, Bus to, ref GainRamp level, int n)
+	{
+		var g0 = level.Current;
+		var g1 = level.Advance(n);
+		if (g0 == 0f && g1 == 0f)
+			return;
+		var dg = (g1 - g0) / n;
+		for (var i = 0; i < n; i++)
+		{
+			var g = g0 + dg * i;
+			to.Left[i] += from.Left[i] * g;
+			to.Right[i] += from.Right[i] * g;
+		}
+	}
+
 	private void End(int slot)
 	{
 		ref var voice = ref _voices[slot];
@@ -499,7 +562,7 @@ internal sealed class AudioMixer : IAudioRenderer
 		public float DistanceGainTarget;
 	}
 
-	private sealed class Bus
+	private sealed class Bus(int maxEffects)
 	{
 		public readonly float[] Left = new float[BlockFrames];
 		public readonly float[] Right = new float[BlockFrames];
@@ -509,6 +572,8 @@ internal sealed class AudioMixer : IAudioRenderer
 		public float Level;       // its last block's peak, after its volume, before its ducks
 		public float DuckFrom = 1f;
 		public float DuckTo = 1f; // the gain its ducks ramp it across the block, from DuckFrom
+		public readonly AudioEffect?[] Effects = new AudioEffect?[maxEffects];
+		public int EffectCount;   // run in the order added, before its volume
 
 		private static GainRamp InitialVolume()
 		{
@@ -524,5 +589,13 @@ internal sealed class AudioMixer : IAudioRenderer
 		public bool Enabled;
 		public int HoldLeft;
 		public float Db; // how far down it has the target now: 0 to Settings.DepthDb
+	}
+
+	// A share of one bus mixed into another, besides its parent
+	private struct Send
+	{
+		public int From;
+		public int To;
+		public GainRamp Level;
 	}
 }

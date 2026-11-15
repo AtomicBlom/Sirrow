@@ -31,6 +31,12 @@ public sealed class AudioOptions
 	/// <summary>How many ducks (<see cref="AudioEngine.AddDuck(AudioBus, AudioBus, float, float, float, float, float)"/>) the engine can hold. Default 8.</summary>
 	public int MaxDucks { get; set; } = 8;
 
+	/// <summary>How many effects (<see cref="AudioEngine.AddEffect"/>) one bus can hold. Default 8.</summary>
+	public int MaxEffectsPerBus { get; set; } = 8;
+
+	/// <summary>How many sends (<see cref="AudioEngine.AddSend(AudioBus, AudioBus, float)"/>) the engine can hold. Default 16.</summary>
+	public int MaxSends { get; set; } = 16;
+
 	/// <summary>
 	/// The output's volume while the app is out of focus (another window in front, the browser tab hidden): a linear gain
 	/// the whole mix fades to, then back from on return, over a quarter of a second. 1 (the default) keeps playing as is; 0
