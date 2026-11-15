@@ -16,11 +16,15 @@ public sealed class OfflineSession : IDisposable
 
 	/// <summary>A session rendering at <paramref name="sampleRate"/>, its engine made with <paramref name="options"/>.</summary>
 	/// <param name="sampleRate">The rate to render at, in frames per second.</param>
-	/// <param name="options">The engine's options: the defaults when null.</param>
+	/// <param name="options">
+	/// The engine's options: when null, the defaults but for <see cref="AudioOptions.Work"/>, which is
+	/// <see cref="AudioWork.Update"/>, so streams and ahead sources are filled after every block and a render is the same
+	/// every time.
+	/// </param>
 	public OfflineSession(int sampleRate = 48_000, AudioOptions? options = null)
 	{
 		_device = new OfflineAudioDevice(sampleRate, BlockFrames);
-		Engine = new AudioEngine(_device, options);
+		Engine = new AudioEngine(_device, options ?? new AudioOptions { Work = AudioWork.Update });
 		SampleRate = sampleRate;
 	}
 

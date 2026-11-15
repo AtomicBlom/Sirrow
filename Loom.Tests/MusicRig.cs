@@ -11,10 +11,11 @@ internal sealed class MusicRig : IDisposable
 	public const int Beat = 24_000;    // at 120 beats a minute
 	public const int Bar = 96_000;     // a bar of 4/4 at 120
 
-	public MusicRig()
+	/// <summary>A rig whose player renders <paramref name="aheadSeconds"/> ahead (live, by default).</summary>
+	public MusicRig(double aheadSeconds = 0)
 	{
 		Session = new OfflineSession(Rate);
-		Player = new MusicPlayer(Session.Engine, Session.Engine.Master);
+		Player = new MusicPlayer(Session.Engine, Session.Engine.Master, aheadSeconds);
 	}
 
 	public OfflineSession Session { get; }

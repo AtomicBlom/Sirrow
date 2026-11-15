@@ -11,7 +11,10 @@ namespace Loom.Audio;
 /// How long the last render took, as a fraction of the time its samples last: 0.1 is 10% of the deadline. Near 1 the
 /// output starts to drop out.
 /// </param>
-/// <param name="MaxRenderLoad">The highest <paramref name="RenderLoad"/> since the mixer started.</param>
+/// <param name="MaxRenderLoad">
+/// The highest <paramref name="RenderLoad"/> since the mixer started (its first second left out, while the mix compiles),
+/// or since <see cref="AudioEngine.ResetMaxRenderLoad"/>.
+/// </param>
 public readonly record struct AudioStats(
 	long FramesRendered,
 	long Callbacks,

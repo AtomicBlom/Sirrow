@@ -76,6 +76,9 @@ internal sealed class AudioMixer : IAudioRenderer
 	public double RenderLoad => Volatile.Read(ref _renderLoad);
 	public double MaxRenderLoad => Volatile.Read(ref _maxRenderLoad);
 
+	// The game thread starting the highest load over: the audio thread's next render past it sets it again
+	public void ResetMaxRenderLoad() => Volatile.Write(ref _maxRenderLoad, 0.0);
+
 	public void Render(Span<float> output)
 	{
 		var started = Stopwatch.GetTimestamp();

@@ -97,6 +97,68 @@ public class MusicPlayerTests
 		rig.Player.Position.AbsoluteBar.ShouldBe(1);
 	}
 
+	private static Song Busy()
+	{
+		var song = new Song("busy");
+		var drums = song.Track("drums", DrumKit.FromPatches("kit", (Kit.Kick, MusicRig.Click, 0), (Kit.HatClosed, MusicRig.Click, 1)));
+		var lead = song.Track("lead", ChipRig.Tone).Humanise(4f, 0.1f);
+		var section = song.Section("a", 2, "I | IV");
+		section.Play(drums, Beat.Eighths((Kit.Kick, "x...x..."), (Kit.HatClosed, "xxxxxxxx")));
+		section.Play(lead, Line.Eighths("1 3 5 3 1 3 5 8").OverChords());
+		return song;
+	}
+
+	[Test]
+	public void Rendered_ahead_a_song_is_the_same_samples_as_live()
+	{
+		using var live = new MusicRig();
+		using var ahead = new MusicRig(aheadSeconds: 0.1);
+		live.Player.Play(Busy());
+		ahead.Player.Play(Busy());
+		live.Step(2 * MusicRig.Bar);
+		ahead.Step(2 * MusicRig.Bar);
+
+		var a = live.Left();
+		var b = ahead.Left();
+		a.Length.ShouldBe(b.Length);
+		for (var i = 0; i < a.Length; i++)
+			b[i].ShouldBe(a[i], $"frame {i}");
+		live.Rms(0, a.Length).ShouldBeGreaterThan(0.01f);   // not two silences alike
+	}
+
+	// A click that comes in with a cue: the bar line it first sounds on, live or rendered ahead, the cue set at a frame
+	private static int FirstOnsetAfterCue(double aheadSeconds, int setAt)
+	{
+		var cue = new Cue("energy");
+		var song = new Song("cued");
+		var track = song.Track("click", MusicRig.Click);
+		song.Section("a", 1).Play(track, Line.Quarters("1 1 1 1")).When(cue.Above(0.5f));
+		using var rig = new MusicRig(aheadSeconds);
+		rig.Player.Play(song);
+		rig.StepTo(setAt);
+		rig.Player.Set(cue, 1f);
+		rig.Step(3 * MusicRig.Bar);
+		return MusicRig.Onsets(rig.Left())[0];
+	}
+
+	[Test]
+	public void Rendered_ahead_a_cue_takes_effect_at_a_bar_line_no_more_than_the_lead_later()
+	{
+		const double lead = 0.1;
+		var leadFrames = (int)(lead * MusicRig.Rate);
+		foreach (var setAt in (int[])[MusicRig.Bar / 2, MusicRig.Bar - 1000])
+		{
+			var live = FirstOnsetAfterCue(0, setAt);
+			var ahead = FirstOnsetAfterCue(lead, setAt);
+			// Live, the next bar line after the cue; ahead, the next after the cue and the lead
+			var liveBar = (setAt + MusicRig.Bar - 1) / MusicRig.Bar * MusicRig.Bar;
+			var aheadBar = (setAt + leadFrames + 256 + MusicRig.Bar - 1) / MusicRig.Bar * MusicRig.Bar;
+			live.ShouldBeInRange(liveBar, liveBar + 16);
+			ahead.ShouldBeInRange(aheadBar, aheadBar + 16);
+			(ahead - live).ShouldBeLessThanOrEqualTo(MusicRig.Bar + 16);
+		}
+	}
+
 	[Test]
 	public void Steady_play_allocates_nothing()
 	{

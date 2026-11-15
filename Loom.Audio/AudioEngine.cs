@@ -59,11 +59,13 @@ public sealed class AudioEngine : IDisposable
 	private int _sendCount;
 	private float _unfocusedVolume;
 	private bool _focused = true;
-	// Open streams, replaced whole as they open and close, and what keeps their rings topped up: a thread of their own, or
-	// in the browser (where the mix itself runs on the frame thread) Update
+	// Open streams and ahead sources, each replaced whole as they come and go, and what does their work: a thread of the
+	// engine's, or Update (AudioWork.Update, and in the browser, where the mix itself runs on the frame thread, unless
+	// AudioOptions.BrowserThread)
 	private AudioStream[] _streams = [];
-	private AudioStreamer? _streamer;
-	private readonly bool _pumpStreams = OperatingSystem.IsBrowser();
+	private AheadSource[] _ahead = [];
+	private AudioWorker? _worker;
+	private readonly bool _workOnUpdate;
 	// Which voices were played in 3D, by slot, and the listener as last sent (so an unmoved listener sends nothing)
 	private readonly bool[] _spatial;
 	private (Vector3? Position, Vector3? Forward, Vector3? Up, Vector3? Velocity) _listenerSent;
@@ -90,6 +92,9 @@ public sealed class AudioEngine : IDisposable
 		Device = device;
 		SampleRate = device.SampleRate;
 		_ownerThread = Environment.CurrentManagedThreadId;
+		_workOnUpdate = options.Work == AudioWork.Update || (OperatingSystem.IsBrowser() && !options.BrowserThread);
+		if (!_workOnUpdate && options.StartWorker)
+			_worker = new AudioWorker();
 
 		_commands = new AudioEventQueue<AudioCommand>(options.CommandCapacity);
 		_ended = new AudioEventQueue<int>(options.MaxVoices);
@@ -139,6 +144,12 @@ public sealed class AudioEngine : IDisposable
 		_mixer.Peak,
 		_mixer.RenderLoad,
 		_mixer.MaxRenderLoad);
+
+	/// <summary>
+	/// Starts <see cref="AudioStats.MaxRenderLoad"/> over from 0, so it says the highest load since now: a debug display
+	/// that shows the peak of each second calls this as each second ends.
+	/// </summary>
+	public void ResetMaxRenderLoad() => _mixer.ResetMaxRenderLoad();
 
 	/// <summary>
 	/// A new bus named <paramref name="name"/>, mixed into <paramref name="parent"/> (the master bus by default). Make the
@@ -752,11 +763,7 @@ public sealed class AudioEngine : IDisposable
 		}
 		var stream = new AudioStream(this, file, decoder, loop);
 		_streams = [.. _streams, stream];
-		if (!_pumpStreams)
-		{
-			_streamer ??= new AudioStreamer();
-			_streamer.SetStreams(_streams);
-		}
+		Worker()?.SetStreams(_streams);
 		return stream;
 	}
 
@@ -766,8 +773,29 @@ public sealed class AudioEngine : IDisposable
 		CheckThread();
 		Stop(stream);
 		_streams = Array.FindAll(_streams, s => s != stream);
-		_streamer?.SetStreams(_streams);
+		_worker?.SetStreams(_streams);
 	}
+
+	// An ahead source starting: rendered ahead from now on, until disposed
+	internal void AddAhead(AheadSource source)
+	{
+		CheckThread();
+		if (Array.IndexOf(_ahead, source) >= 0)
+			return;
+		_ahead = [.. _ahead, source];
+		Worker()?.SetAhead(_ahead);
+	}
+
+	// An ahead source disposing: no more rendering for it
+	internal void RemoveAhead(AheadSource source)
+	{
+		CheckThread();
+		_ahead = Array.FindAll(_ahead, s => s != source);
+		_worker?.SetAhead(_ahead);
+	}
+
+	// The thread doing the work off the audio thread, made the first time it is needed; none when Update does the work
+	private AudioWorker? Worker() => _workOnUpdate ? null : _worker ??= new AudioWorker();
 
 	private static void CheckStreamChannels(IStreamDecoder decoder)
 	{
@@ -776,21 +804,29 @@ public sealed class AudioEngine : IDisposable
 	}
 
 	/// <summary>
-	/// Hears from the audio thread: frees the voices that have ended, and throws what a source threw there or a stream's
-	/// decoding threw. In the browser it also decodes ahead for the streams. A <c>LoomApplication</c> calls it once a frame;
-	/// an engine used on its own should too.
+	/// Hears from the audio thread: frees the voices that have ended, and throws what a source threw there, a stream's
+	/// decoding threw, or an <see cref="AheadSource"/>'s inner source threw. With <see cref="AudioWork.Update"/> (and in the
+	/// browser, by default) it also decodes ahead for the streams and renders ahead for the ahead sources. A
+	/// <c>LoomApplication</c> calls it once a frame; an engine used on its own should too.
 	/// </summary>
-	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> or <see cref="AudioEffect"/> threw on the audio thread, or an <see cref="AudioStream"/>'s file failed to decode (the inner exception); its voice was stopped.</exception>
+	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> or <see cref="AudioEffect"/> threw on the audio thread, an <see cref="AudioStream"/>'s file failed to decode, or an <see cref="AheadSource"/>'s inner source threw (the inner exception); it was stopped.</exception>
 	public void Update()
 	{
 		CheckThread();
 		TakeEnded();
 		foreach (var stream in _streams)
 		{
-			if (_pumpStreams)
+			if (_workOnUpdate)
 				stream.Fill(int.MaxValue);
 			if (stream.TakeFault() is { } failed)
 				throw new InvalidOperationException($"An audio stream failed to decode, and stopped: {failed.Message}", failed);
+		}
+		foreach (var source in _ahead)
+		{
+			if (_workOnUpdate)
+				source.Fill();
+			if (source.TakeFault() is { } failed)
+				throw new InvalidOperationException($"A source rendered ahead threw, and stopped: {failed.Message}", failed);
 		}
 		if (Interlocked.Exchange(ref _mixer.Fault, null) is { } fault)
 			throw new InvalidOperationException($"An audio source or effect threw on the audio thread, and was stopped: {fault.Message}", fault);
@@ -817,7 +853,7 @@ public sealed class AudioEngine : IDisposable
 			return;
 		_disposed = true;
 		Device.Dispose();
-		_streamer?.Dispose();
+		_worker?.Dispose();
 		foreach (var stream in _streams)
 			stream.Close();
 		_streams = [];

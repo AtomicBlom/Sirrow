@@ -56,4 +56,24 @@ public sealed class AudioOptions
 	/// one frame; past it the engine throws rather than drop one.
 	/// </summary>
 	public int CommandCapacity { get; set; } = 4096;
+
+	/// <summary>
+	/// Where the work off the audio thread runs (decoding streams, rendering sources ahead): a thread of its own (the
+	/// default) or <see cref="AudioEngine.Update"/>. In the browser <see cref="AudioWork.Thread"/> is taken as
+	/// <see cref="AudioWork.Update"/> unless <see cref="BrowserThread"/>.
+	/// </summary>
+	public AudioWork Work { get; set; } = AudioWork.Thread;
+
+	/// <summary>
+	/// In the browser, give the work its thread too, as on the desktop, rather than doing it in <see cref="AudioEngine.Update"/>
+	/// on the frame thread. A thread made while a browser app runs can hang its frames, so set <see cref="StartWorker"/> with
+	/// it. False by default.
+	/// </summary>
+	public bool BrowserThread { get; set; }
+
+	/// <summary>
+	/// Make the work's thread as the engine is made, rather than when a stream or an ahead source first needs it. False by
+	/// default; a browser app that sets <see cref="BrowserThread"/> should set this too.
+	/// </summary>
+	public bool StartWorker { get; set; }
 }

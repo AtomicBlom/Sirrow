@@ -22,20 +22,33 @@ public sealed class MusicPlayer : IDisposable
 	private readonly Dictionary<string, bool> _soloed = [];
 	private readonly Dictionary<string, float> _gainDb = [];
 	private readonly Dictionary<(string Section, string Placement), PlacementState> _forced = [];
-	private readonly List<MusicSource> _fading = [];
+	private readonly List<AudioSource> _fading = [];
 	private readonly Conductor _conductor;
+	private readonly double _aheadSeconds;
 	private MusicSource? _source;
+	private AudioSource? _played;   // what the engine plays: the song's source, or an AheadSource wrapping it
 	private SongState? _swapping;   // a swap posted but not yet known taken
 	private int _asked = -1;
 
-	/// <summary>A player for <paramref name="audio"/>, its songs on <paramref name="bus"/>.</summary>
-	public MusicPlayer(AudioEngine audio, AudioBus bus)
+	/// <summary>
+	/// A player for <paramref name="audio"/>, its songs on <paramref name="bus"/>. With <paramref name="aheadSeconds"/> above
+	/// 0, each song is rendered that far ahead of the speaker, off the audio thread (<see cref="AheadSource"/>): the audio
+	/// thread then only copies it, and the cues and commands are heard up to that much later.
+	/// </summary>
+	/// <exception cref="ArgumentOutOfRangeException">A lead below 0, or above a second.</exception>
+	public MusicPlayer(AudioEngine audio, AudioBus bus, double aheadSeconds = 0)
 	{
 		ArgumentNullException.ThrowIfNull(audio);
+		if (!double.IsFinite(aheadSeconds) || aheadSeconds < 0 || aheadSeconds > 1)
+			throw new ArgumentOutOfRangeException(nameof(aheadSeconds), aheadSeconds, "A lead is 0 (live) to a second.");
 		_audio = audio;
 		_bus = bus;
+		_aheadSeconds = aheadSeconds;
 		_conductor = new Conductor(CueValue);
 	}
+
+	/// <summary>How far ahead of the speaker songs are rendered, in seconds: 0 renders them live, on the audio thread.</summary>
+	public double AheadSeconds => _aheadSeconds;
 
 	/// <summary>Whether a song is playing.</summary>
 	public bool IsPlaying => _source is not null;
@@ -54,7 +67,10 @@ public sealed class MusicPlayer : IDisposable
 		? state.Song.Song.Meter.Beats * 4.0 / state.Song.Song.Meter.Unit * 60.0 / state.Song.Tempo
 		: 0.0;
 
-	/// <summary>Where the song is, as the audio thread last said (a block old at most).</summary>
+	/// <summary>
+	/// Where the song is, as its rendering last said (a block old at most). Rendered ahead (<see cref="AheadSeconds"/>), it is
+	/// up to the lead ahead of what is heard.
+	/// </summary>
 	public MusicPosition Position
 	{
 		get
@@ -96,9 +112,10 @@ public sealed class MusicPlayer : IDisposable
 		_gainDb.Clear();
 		_forced.Clear();
 		_source = new MusicSource(state);
+		_played = _aheadSeconds > 0 ? new AheadSource(_audio, _source, _aheadSeconds) : _source;
 		_swapping = null;
 		_asked = -1;
-		_audio.Play(_source, _bus);
+		_audio.Play(_played, _bus);
 	}
 
 	/// <summary>
@@ -129,11 +146,12 @@ public sealed class MusicPlayer : IDisposable
 	/// <summary>Stops the song, fading out over <paramref name="fadeSeconds"/>.</summary>
 	public void Stop(float fadeSeconds = 1f)
 	{
-		if (_source is not { } source)
+		if (_source is null || _played is not { } played)
 			return;
-		_audio.Stop(source, fadeSeconds);
-		_fading.Add(source);
+		_audio.Stop(played, fadeSeconds);
+		_fading.Add(played);
 		_source = null;
+		_played = null;
 		_swapping = null;
 	}
 
@@ -146,7 +164,10 @@ public sealed class MusicPlayer : IDisposable
 	{
 		for (var i = _fading.Count - 1; i >= 0; i--)
 			if (!_fading[i].IsPlaying)
+			{
+				(_fading[i] as AheadSource)?.Dispose();
 				_fading.RemoveAt(i);
+			}
 		if (_source is not { } source)
 			return;
 		if (_swapping is not null && ReferenceEquals(source.State, _swapping))
@@ -297,7 +318,9 @@ public sealed class MusicPlayer : IDisposable
 				state.Forced[s][p] = _forced.GetValueOrDefault((song.Sections[s].Name, song.Sections[s].Placements[p].Name));
 	}
 
-	/// <summary>Whether a placement is playing now: its section is, and it is on.</summary>
+	/// <summary>
+	/// Whether a placement is playing now: its section is, and it is on. Rendered ahead, up to the lead ahead of what is heard.
+	/// </summary>
 	public bool IsActive(Placement placement)
 	{
 		var (section, index) = Find(placement);
@@ -308,7 +331,10 @@ public sealed class MusicPlayer : IDisposable
 		return source.SectionIndex == section && index < source.State.Published.Length && source.State.Published[index];
 	}
 
-	/// <summary>The loudest a track's notes were in the last block, a linear level: for a meter.</summary>
+	/// <summary>
+	/// The loudest a track's notes were in the last block rendered, a linear level: for a meter. Rendered ahead, up to the
+	/// lead ahead of what is heard.
+	/// </summary>
 	public float TrackPeak(SongTrack track)
 	{
 		var index = CheckTrack(track).Index;
@@ -362,7 +388,10 @@ public sealed class MusicPlayer : IDisposable
 	{
 		Stop(0f);
 		foreach (var source in _fading)
+		{
 			_audio.Stop(source);
+			(source as AheadSource)?.Dispose();
+		}
 		_fading.Clear();
 	}
 }

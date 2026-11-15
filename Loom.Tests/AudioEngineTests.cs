@@ -306,6 +306,36 @@ public class AudioEngineTests
 		}
 	}
 
+	[Test]
+	public void The_highest_load_starts_over_when_reset()
+	{
+		var (engine, device) = Make();
+		engine.Play(new BusySource());
+		// Past the first second, which the highest load leaves out
+		for (var i = 0; i < Rate / Block + 10; i++)
+			Render(device);
+		engine.Stats.MaxRenderLoad.ShouldBeGreaterThan(0.0);
+
+		engine.ResetMaxRenderLoad();
+		engine.Stats.MaxRenderLoad.ShouldBe(0.0);
+
+		Render(device);
+		engine.Stats.MaxRenderLoad.ShouldBeGreaterThan(0.0);
+	}
+
+	// Spins for a few microseconds a block, so a render takes measurable time
+	private sealed class BusySource : AudioSource
+	{
+		protected override bool Render(Span<float> left, Span<float> right, in AudioRenderInfo info)
+		{
+			var until = System.Diagnostics.Stopwatch.GetTimestamp() + System.Diagnostics.Stopwatch.Frequency / 100_000;
+			while (System.Diagnostics.Stopwatch.GetTimestamp() < until)
+			{
+			}
+			return true;
+		}
+	}
+
 	private sealed class ThrowingSource : AudioSource
 	{
 		protected override bool Render(Span<float> left, Span<float> right, in AudioRenderInfo info) =>
