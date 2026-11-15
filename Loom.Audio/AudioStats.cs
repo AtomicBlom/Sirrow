@@ -12,7 +12,7 @@ namespace Loom.Audio;
 /// output starts to drop out.
 /// </param>
 /// <param name="MaxRenderLoad">
-/// The highest <paramref name="RenderLoad"/> since the mixer started (its first second left out, while the mix compiles),
+/// The highest <paramref name="RenderLoad"/> since the mixer started (its first quarter second left out, while the mix compiles),
 /// or since <see cref="AudioEngine.ResetMaxRenderLoad"/>.
 /// </param>
 public readonly record struct AudioStats(

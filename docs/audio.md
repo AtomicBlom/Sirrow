@@ -77,6 +77,9 @@ Every value is a request the platform meets as closely as it can. `Audio.Device`
 | `SpeedOfSound` | 343 | The speed of sound in the game's units a second, for the Doppler shift of 3D voices: 343 for metres, 1125 for feet. |
 | `UnfocusedVolume` | 1 (no change) | The output's volume while the app is out of focus: another window in front, the browser tab hidden, the app behind another on Android. The whole mix fades to it over a quarter second and back on return. 0 silences an app in the background. It is a gain of its own after the master bus, so the game's volumes, the master's included, are left alone, and it multiplies with them. `Audio.SetUnfocusedVolume` changes it while the app runs, for a setting the player chooses. |
 | `CommandCapacity` | 4096 | Commands (plays, stops, volume changes) waiting for the audio thread at once. Past it the engine throws rather than drop one. |
+| `Work` | `Thread` | Where the work off the audio thread runs (decoding streams, rendering [ahead sources](#ahead-of-the-speaker-aheadsource)): `AudioWork.Thread`, a worker thread of the engine's, or `AudioWork.Update`, in `Audio.Update()` on the frame thread, which is deterministic (tests and offline renders; `OfflineSession` takes it by default). In the browser `Thread` is taken as `Update` unless `BrowserThread`. |
+| `BrowserThread` | false | In the browser, give the work its own thread as on the desktop, rather than the frame thread. A thread made while a browser app runs can hang its frames, so set `StartWorker` with it. |
+| `StartWorker` | false | Make the worker as the engine is made, rather than when the first stream or ahead source needs it. |
 
 ### No output
 
@@ -131,9 +134,9 @@ _theme.Dispose(); // once it has faded, or when the game is done with it
 - **Each play starts from the beginning.** A looping stream joins its end to its start without a gap, to the sample:
   the file's length is exactly what was encoded (an Ogg file's last page's granule position says so; a FLAC file's
   frames hold exactly its samples).
-- **Decoding never happens on the audio thread.** A streaming thread of the engine's decodes about half a second
-  ahead into a lock-free ring, waking every 10 ms, and the audio thread reads the ring. In the browser, where the mix
-  runs on the frame thread, `Audio.Update()` decodes ahead instead. A play decodes the first 100 ms on the calling
+- **Decoding never happens on the audio thread.** The engine's worker thread decodes about half a second ahead into a
+  lock-free ring, waking every 10 ms, and the audio thread reads the ring. With `AudioWork.Update` (and in the browser,
+  where the mix runs on the frame thread, by default), `Audio.Update()` decodes ahead instead. A play decodes the first 100 ms on the calling
   thread, so the stream has sound from its first block.
 - **A file at another rate is converted as it plays,** by the same curve clips are converted with. A 44.1 kHz file
   plays at the right pitch and speed on a 48 kHz device.
@@ -420,15 +423,50 @@ sealed class Synth : AudioSource
 synth.Notes.TryPost(new NoteEvent(60, 0.9f, On: true)); // from Update
 ```
 
+### Ahead of the speaker: `AheadSource`
+
+A source that costs a lot to render, and can answer its controls a little late, can be rendered ahead of the speaker,
+off the audio thread:
+
+```csharp
+_music = new AheadSource(Audio, songSource, leadSeconds: 0.1);
+Audio.Play(_music, musicBus);
+```
+
+- **The engine's worker renders the inner source** in blocks of 256 frames into a lock-free ring, keeping the lead
+  waiting and waking every 2 ms while there are ahead sources (with `AudioWork.Update`, `Audio.Update()` does it). The
+  audio thread only copies from the ring, so its cost there is a copy, whatever the inner source costs.
+- **The lead is latency.** A change to the inner source's controls is heard up to the lead later. Music can take that
+  (the music player's `aheadSeconds`, [synth.md](synth.md)); a sound effect, a car's engine or a click of the UI should
+  play directly.
+- **A play renders the whole lead at once,** on the frame thread, so it sounds from its first block.
+- **If the work falls behind,** the block plays silence where nothing waits, counted in `Underruns`, and the source
+  carries on from where it stopped, none of it lost. `FramesHeard` and `FramesRendered` say how far each side has got.
+- **The inner source must not play on its own** while wrapped (a play of it throws), and its controls keep one reader:
+  the thread rendering it ahead, in place of the audio thread. What the inner source throws is thrown again from
+  `Audio.Update()`, as a stream's fault is. `Dispose` stops it and takes it out of the worker's list.
+
+`AheadSourceTests` holds it to that: frames in order with none lost, the lead kept, an underrun counted and recovered
+from, the end and a fault passed on, nothing allocated once it plays, and a real-time device kept up with by the worker.
+
 ---
 
 ## 6. Threads
 
-Two threads share an `AudioEngine`:
+Three threads share an `AudioEngine`:
 
 - **The frame thread** (the thread that made the engine, the app's in a `LoomApplication`) calls every method. A call
   from any other thread throws, except making clips (`CreateClip`, `LoadWav`), which touches no shared state.
 - **The audio thread** (the device's) mixes. It never waits on the game.
+- **The worker** (`Loom audio worker`), when streams or ahead sources need it (or at once, with `StartWorker`):
+  decodes streams ahead and renders ahead sources ahead. It never touches the mix; with `AudioWork.Update` there is
+  none, and `Update` does its work.
+
+| Thread | Runs | Wakes |
+|---|---|---|
+| Frame | every engine call; `Update` | each frame |
+| Audio | the mix: sources' `Render`, effects, buses | each device buffer (10 ms on Windows) |
+| Worker | streams' decoding, ahead sources' rendering | every 2 ms with ahead sources, 10 ms without |
 
 Each call on the frame thread copies a command into a lock-free queue, and the audio thread takes the queued commands at
 the start of its next block. So a play is heard within one device buffer of the call, and the order of calls is the
@@ -449,7 +487,7 @@ allocations, as Loom's render loop is, keeps its audio safe as well.
 | `FramesRendered`, `Callbacks`, `LastCallbackFrames` | The mix's clock, how many times the device has asked for samples, and the buffer it is really running at. |
 | `ActiveVoices`, `DroppedVoices` | Voices playing now, and plays dropped because every voice was busy. |
 | `Peak` | The loudest sample of the last buffer, before the clip to -1..1. |
-| `RenderLoad`, `MaxRenderLoad` | How long the last render took, as a fraction of the time its samples last (0.1 is 10% of the deadline), and the highest since the first quarter second. Near 1, the output drops out. |
+| `RenderLoad`, `MaxRenderLoad` | How long the last render took, as a fraction of the time its samples last (0.1 is 10% of the deadline), and the highest since the first quarter second (or since `Audio.ResetMaxRenderLoad()`, which a display showing each second's peak calls once a frame or once a second). Near 1, the output drops out. |
 
 ---
 

@@ -484,6 +484,14 @@ The sequencer splits each block at every event, bar line and section end and han
 timing is exact to the frame. It allocates nothing once playing. **Cost:** a song of eight tracks (a kit, a bass and six
 four-operator parts in eighths) renders at 31× real time on a Snapdragon X laptop.
 
+**Rendered ahead.** `new MusicPlayer(audio, bus, aheadSeconds: 0.1)` wraps each song's source in an `AheadSource`
+([audio.md](audio.md), "Ahead of the speaker"), so the engine's worker renders it a tenth of a second ahead and the audio
+thread only copies it: the same samples as live (`MusicPlayerTests`). The cost is latency. A cue or a command is heard
+up to the lead later, so a part comes in at the bar line after the cue and the lead, and `Position`, `IsActive` and
+`TrackPeak` run up to the lead ahead of the ear. A game wants it. A workbench passes 0 (the default), so what it
+shows matches what is heard. In RubberTrack it took the music off the audio thread's deadline: the thread's load while
+driving fell from 2.4% to 1.0% of it, its peak from 7% to 2%.
+
 ---
 
 ## 10. The workbench: `Loom.Audio.Workbench`
