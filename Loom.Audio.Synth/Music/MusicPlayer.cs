@@ -18,6 +18,10 @@ public sealed class MusicPlayer : IDisposable
 	private readonly AudioEngine _audio;
 	private readonly AudioBus _bus;
 	private readonly Dictionary<CueBase, float> _cues = [];
+	private readonly Dictionary<string, bool> _muted = [];
+	private readonly Dictionary<string, bool> _soloed = [];
+	private readonly Dictionary<string, float> _gainDb = [];
+	private readonly Dictionary<(string Section, string Placement), PlacementState> _forced = [];
 	private readonly List<MusicSource> _fading = [];
 	private readonly Conductor _conductor;
 	private MusicSource? _source;
@@ -63,6 +67,14 @@ public sealed class MusicPlayer : IDisposable
 		}
 	}
 
+	// The tick within the section playing, as the audio thread last said: for a workbench's playhead
+	internal int SectionTick => _source is { } source
+		? source.State.Song.Sections[Math.Min(source.SectionIndex, source.State.Song.Sections.Length - 1)].LengthTicks - source.TicksLeft
+		: -1;
+
+	// The song playing as compiled, for a workbench's patterns
+	internal CompiledSong? Compiled => Current?.Song;
+
 	/// <summary>How busy its chip was at its last block.</summary>
 	public ChipStats Stats => _source?.Stats ?? default;
 
@@ -79,6 +91,10 @@ public sealed class MusicPlayer : IDisposable
 		var state = new SongState(CompiledSong.Compile(song, scale ?? song.Scale));
 		Tell(state);
 		Stop(fadeSeconds);
+		_muted.Clear();
+		_soloed.Clear();
+		_gainDb.Clear();
+		_forced.Clear();
 		_source = new MusicSource(state);
 		_swapping = null;
 		_asked = -1;
@@ -105,6 +121,7 @@ public sealed class MusicPlayer : IDisposable
 			map[s] = Math.Max(0, Array.FindIndex(state.Song.Sections, n => n.Name == current.Song.Sections[s].Name));
 		state.SectionMap = map;
 		Tell(state);
+		Carry(state);
 		_swapping = state;
 		source.Post(new MusicCommand { Kind = MusicCommandKind.Swap, Payload = state });
 	}
@@ -175,6 +192,11 @@ public sealed class MusicPlayer : IDisposable
 	/// <summary>A level cue's value as last told, or its initial value.</summary>
 	public float Get(Cue cue) => CueValue(cue);
 
+	// Any cue's value as the sequencer holds it (a choice's as its number), for a workbench that shows every kind
+	internal float GetValue(CueBase cue) => CueValue(cue);
+
+	internal void SetValue(CueBase cue, float value) => Write(cue, value);
+
 	private float CueValue(CueBase cue) => _cues.TryGetValue(cue, out var value) ? value : cue.InitialValue;
 
 	private void Write(CueBase cue, float value)
@@ -206,21 +228,73 @@ public sealed class MusicPlayer : IDisposable
 	/// <summary>Holds the section playing (true) or lets the song go on (false).</summary>
 	public void LoopSection(bool loop) => Post(MusicCommandKind.Loop, 0, value: loop ? 1f : 0f);
 
-	/// <summary>Silences a track's new notes, or lets them sound again.</summary>
-	public void Mute(SongTrack track, bool muted) => Post(MusicCommandKind.Mute, CheckTrack(track).Index, value: muted ? 1f : 0f);
+	/// <summary>Silences a track's new notes, or lets them sound again. Kept, by the track's name, through a swap.</summary>
+	public void Mute(SongTrack track, bool muted)
+	{
+		var index = CheckTrack(track).Index;
+		_muted[track.Name] = muted;
+		if (_swapping is { } swapping)
+			swapping.Muted[index] = muted;
+		else
+			Post(MusicCommandKind.Mute, index, value: muted ? 1f : 0f);
+	}
 
-	/// <summary>Silences every track not soloed while any is.</summary>
-	public void Solo(SongTrack track, bool solo) => Post(MusicCommandKind.Solo, CheckTrack(track).Index, value: solo ? 1f : 0f);
+	/// <summary>Silences every track not soloed while any is. Kept, by the track's name, through a swap.</summary>
+	public void Solo(SongTrack track, bool solo)
+	{
+		var index = CheckTrack(track).Index;
+		_soloed[track.Name] = solo;
+		if (_swapping is { } swapping)
+			swapping.Soloed[index] = solo;
+		else
+			Post(MusicCommandKind.Solo, index, value: solo ? 1f : 0f);
+	}
 
-	/// <summary>A track's gain over its level, in decibels: 0 as written.</summary>
-	public void SetTrackGain(SongTrack track, float db) =>
-		Post(MusicCommandKind.TrackGain, CheckTrack(track).Index, value: Dsp.Units.DbToGain(db));
+	/// <summary>A track's gain over its level, in decibels: 0 as written. Kept, by the track's name, through a swap.</summary>
+	public void SetTrackGain(SongTrack track, float db)
+	{
+		var index = CheckTrack(track).Index;
+		_gainDb[track.Name] = db;
+		var gain = Dsp.Units.DbToGain(db);
+		if (_swapping is { } swapping)
+		{
+			swapping.TrackGain[index] = gain;
+			swapping.Instruments[index].Gain = swapping.Song.Tracks[index].Gain * gain;
+		}
+		else
+			Post(MusicCommandKind.TrackGain, index, value: gain);
+	}
 
-	/// <summary>Holds a placement on or off whatever its condition, from the next bar line (or its next phrase), or back to <see cref="PlacementState.Auto"/>.</summary>
+	/// <summary>
+	/// Holds a placement on or off whatever its condition, from the next bar line (or its next phrase), or back to
+	/// <see cref="PlacementState.Auto"/>. Kept, by its section's and its own name, through a swap.
+	/// </summary>
 	public void Force(Placement placement, PlacementState state)
 	{
 		var (section, index) = Find(placement);
-		Post(MusicCommandKind.Force, section, index, (int)state);
+		_forced[(placement.Section.Name, placement.Name)] = state;
+		if (_swapping is { } swapping)
+			swapping.Forced[section][index] = state;
+		else
+			Post(MusicCommandKind.Force, section, index, (int)state);
+	}
+
+	// What the game steered, by name, into a song about to be swapped in: mutes, solos, gains and forced placements
+	private void Carry(SongState state)
+	{
+		var song = state.Song;
+		for (var t = 0; t < song.Tracks.Length; t++)
+		{
+			var name = song.Tracks[t].Name;
+			state.Muted[t] = _muted.GetValueOrDefault(name);
+			state.Soloed[t] = _soloed.GetValueOrDefault(name);
+			var gain = Dsp.Units.DbToGain(_gainDb.GetValueOrDefault(name));
+			state.TrackGain[t] = gain;
+			state.Instruments[t].Gain = song.Tracks[t].Gain * gain;
+		}
+		for (var s = 0; s < song.Sections.Length; s++)
+			for (var p = 0; p < song.Sections[s].Placements.Length; p++)
+				state.Forced[s][p] = _forced.GetValueOrDefault((song.Sections[s].Name, song.Sections[s].Placements[p].Name));
 	}
 
 	/// <summary>Whether a placement is playing now: its section is, and it is on.</summary>
@@ -228,6 +302,9 @@ public sealed class MusicPlayer : IDisposable
 	{
 		var (section, index) = Find(placement);
 		var source = _source!;
+		// A song swapped in but not yet playing: nothing of it is on
+		if (_swapping is not null && !ReferenceEquals(source.State, _swapping))
+			return false;
 		return source.SectionIndex == section && index < source.State.Published.Length && source.State.Published[index];
 	}
 
@@ -235,7 +312,10 @@ public sealed class MusicPlayer : IDisposable
 	public float TrackPeak(SongTrack track)
 	{
 		var index = CheckTrack(track).Index;
-		var peaks = _source!.State.Peaks;
+		var source = _source!;
+		if (_swapping is not null && !ReferenceEquals(source.State, _swapping))
+			return 0f;
+		var peaks = source.State.Peaks;
 		return index < peaks.Length ? Volatile.Read(ref peaks[index]) : 0f;
 	}
 

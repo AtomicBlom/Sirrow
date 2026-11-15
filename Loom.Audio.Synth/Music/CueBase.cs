@@ -18,6 +18,10 @@ public abstract class CueBase
 	// Its value before the game sets one, as the sequencer holds it
 	internal abstract float InitialValue { get; }
 
+	// A choice's options, by name, and each one's value as the sequencer holds it; none for a level
+	internal virtual string[] OptionNames => [];
+	internal virtual float OptionValue(int index) => index;
+
 	/// <inheritdoc/>
 	public override string ToString() => Name;
 }
