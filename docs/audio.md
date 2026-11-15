@@ -346,11 +346,12 @@ out since the last frame can be played again straight away.
 
 ### Steering a source from the game
 
-The game and the audio thread share no lock, so a source takes its controls through two lock-free types:
+The game and the audio thread share no lock, so a source takes its controls through these lock-free types:
 
 | Type | For | Game thread | Audio thread |
 |---|---|---|---|
-| `AudioParameter` | A continuous value where only the latest matters: a cutoff, an RPM, an intensity. | Set `Value` whenever it likes. | `Ramp(info.Frames)` once a block, then `Next()` once a sample: a straight line from where it was to `Value`. `Snap()` jumps straight there, for a control where a step is what's wanted (a waveform choice). |
+| `AudioParameter` | A continuous value where only the latest matters, reached within the block: a cutoff, a level set from a menu. | Set `Value` whenever it likes. | `Ramp(info.Frames)` once a block, then `Next()` once a sample: a straight line from where it was to `Value`. `Snap()` jumps straight there, for a control where a step is what's wanted (a waveform choice). |
+| `SmoothedParameter` | A continuous value the game moves often and in steps, eased with a time constant (`seconds`, after which it has gone 63% of the way): an engine's RPM, a tyre's squeal, set every physics step. An `AudioParameter` would follow it as a staircase of short ramps. | Set `Value` whenever it likes. | `Prepare(rate)` in `OnStart`; `Begin()` once a block, then `Next()` once a sample, or `Skip(frames)` for a value read once a block. `Snap()` jumps straight there. |
 | `AudioEventQueue<T>` | Discrete events that must all arrive, in order: note on, note off, a trigger. `T` is a small struct. | `TryPost(event)` (false when full), or `Post`, which throws when full. | `TryTake(out event)` at the start of `Render`, until it returns false. |
 
 An `AudioEventQueue<T>` has a fixed capacity (rounded up to a power of two) and is strictly one thread posting and one

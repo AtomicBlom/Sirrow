@@ -68,6 +68,8 @@ thing that can stall the mix. An exception thrown there stops the voice and is t
 Steer a source from the game with:
 - **`AudioParameter`** — a continuous value (a cutoff, an RPM, an intensity). The game sets `Value`; the source takes
   a `Ramp` once a block. Only the latest value matters.
+- **`SmoothedParameter`** — the same, eased with a time constant rather than ramped across one block, for a value the
+  game moves in steps many times a second (an RPM set every physics step). `Begin()` once a block, `Next()` a sample.
 - **`AudioEventQueue<T>`** — discrete events that must all arrive, in order (a note on, a note off). Lock-free, one
   thread posting and one taking.
 
