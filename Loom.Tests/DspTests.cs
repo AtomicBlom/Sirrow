@@ -307,6 +307,32 @@ public class DspTests
 	}
 
 	[Test]
+	public void Oversampling_delays_by_a_whole_number_of_frames()
+	{
+		foreach (var factor in new[] { 2, 4 })
+		{
+			const int block = 256;
+			var oversampler = new Oversampler(factor, block);
+			var input = new float[block * 2];
+			input[block - 10] = 1f; // across a block's edge, where the 4× path's carried sample is
+			var raised = new float[block * factor];
+			var output = new float[input.Length];
+			for (var start = 0; start < input.Length; start += block)
+			{
+				oversampler.Up(input.AsSpan(start, block), raised);
+				oversampler.Down(raised, output.AsSpan(start, block));
+			}
+
+			var at = block - 10 + oversampler.LatencyFrames;
+			for (var i = 0; i < output.Length; i++)
+				MathF.Abs(output[i]).ShouldBeLessThanOrEqualTo(MathF.Abs(output[at]), $"factor {factor}, frame {i}");
+			// A linear-phase response sampled at its centre is symmetric about it
+			for (var k = 1; k < 30; k++)
+				output[at - k].ShouldBe(output[at + k], 1e-6f, $"factor {factor}, {k} either side");
+		}
+	}
+
+	[Test]
 	public void Oversampling_up_leaves_no_image()
 	{
 		const int block = 256;

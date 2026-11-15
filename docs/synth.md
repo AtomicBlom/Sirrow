@@ -1,7 +1,7 @@
 # Synthesis
 
 What [`Loom.Audio.Synth`](../Loom.Audio.Synth) adds over [the mixer](audio.md): the DSP building blocks a source is
-made of, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to.
+made of, effects for buses, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to.
 
 The library depends only on `Loom.Audio` and the BCL. The Loom SDK doesn't reference it for an app: an app or test
 project that wants it references it itself.
@@ -90,7 +90,7 @@ on the audio thread. Per-sample methods are inlined.
 | `EnvelopeShape`, `Envelope` | Attack, decay, sustain, release: a straight attack, exponential falls of 60 dB over their times. `Struck(seconds)`, `Gate` |
 | `Lfo` | A slow sine to move something else |
 | `Resonator` | One ringing mode: an impulse rings at about unit amplitude and dies by 60 dB over its decay |
-| `Oversampler` | 2× or 4× up and back down by half-band filters, so a waveshaper between doesn't alias. A class |
+| `Oversampler` | 2× or 4× up and back down by half-band filters, so a waveshaper between doesn't alias. Delays by a whole `LatencyFrames` (31 or 47), so a dry copy delayed as much lines up. A class |
 | `Denormal` | Flushes a filter's memory to zero before it reaches the slow denormal range |
 
 Call each filter's `Flush()` once a block: a filter fed silence decays toward the denormal range, where a float is
@@ -128,3 +128,117 @@ sealed class Buzz : AudioSource
 	}
 }
 ```
+
+## 5. Effects: `Loom.Audio.Synth.Effects`
+
+`AudioEffect`s to put on a bus with `AudioEngine.AddEffect` ([Effects and sends](audio.md#effects-and-sends)), or to
+run on a synthesizer's own groups. Each is a sealed class with its controls as public `AudioParameter` and
+`SmoothedParameter` properties: set their `Value` from the game at any time. A control marked *eased* glides to a new
+value; the rest are read once a block. Each allocates only when it is made and prepared.
+
+A reverb shared by several buses, through sends:
+
+```csharp
+var space = Audio.CreateBus("space");     // made first: it receives sends
+var sfx = Audio.CreateBus("sfx");
+var music = Audio.CreateBus("music");
+var reverb = new Reverb(size: 1.2f);
+Audio.AddEffect(space, reverb);
+var sfxToSpace = Audio.AddSend(sfx, space, 0.1f);
+Audio.AddSend(music, space, 0.05f);
+Audio.AddEffect(Audio.Master, new Limiter());
+
+// In a cave: more of the effects off the walls, and a longer tail
+Audio.SetSendLevel(sfxToSpace, 0.4f, fadeSeconds: 0.2f);
+reverb.DecaySeconds.Value = 2.5f;
+```
+
+### `Reverb`
+
+A room: eight delay lines feeding back through a mixing matrix, behind four all-passes that smear the input, each line
+losing highs as it goes round. Mono in, stereo out. `new Reverb(size)` scales the room's lines, 0.5 to 2. Its
+defaults (all wet, no dry) suit a bus fed only by sends.
+
+| Control | Default | Meaning |
+|---|---|---|
+| `DecaySeconds` | 1.8, eased over 0.1 s | How long the tail takes to fall 60 dB, 0.1 to 20 |
+| `DampingHz` | 6000 | Where the tail loses its highs: lower is a softer room |
+| `PreDelaySeconds` | 0.015 | The gap before the room answers, 0 to 0.25 |
+| `Wet` | 1, eased | The reverb's share |
+| `Dry` | 0, eased | The input's share |
+
+### `Delay`
+
+Echoes, each quieter and darker. `new Delay(pingPong, maxSeconds)`: ping-pong bounces the repeats between the
+sides. `Delay.Beats(beats, bpm)` gives a time in step with music. A change of time glides, bending the echoes' pitch.
+
+| Control | Default | Meaning |
+|---|---|---|
+| `TimeSeconds` | 0.375, eased over 0.2 s | The time to the first repeat, up to `maxSeconds` |
+| `Feedback` | 0.35 | How much of each repeat comes round again, 0 to 0.95 |
+| `DampingHz` | 4000 | A one-pole low-pass on the feedback: a click comes back smeared, a tone at its level |
+| `Wet` | 0.5, eased | The repeats' share |
+| `Dry` | 1, eased | The input's share |
+
+### `Chorus`
+
+Two copies a side, each delayed by about 12 ms swaying out of step with the others, so the sound thickens and widens.
+
+| Control | Default | Meaning |
+|---|---|---|
+| `RateHz` | 0.6 | How fast the copies sway |
+| `DepthSeconds` | 0.003 | How far each copy's delay sways either side of 12 ms, up to 0.01 |
+| `Mix` | 0.5, eased | 0 is the input alone; 1 is the copies with half the input |
+
+### `Compressor`
+
+Brings a level over the threshold down by the ratio, both sides together by the louder. The amount the curve asks for
+is held through the troughs between a wave's peaks by the release, then eased toward by the attack (a decoupled peak
+detector), so a steady tone over the threshold settles where the ratio puts it. `GainReductionDb` reads how far down it
+is, once a block, from any thread.
+
+| Control | Default | Meaning |
+|---|---|---|
+| `ThresholdDb` | −18 | The level it starts at, in decibels of full scale |
+| `Ratio` | 4 | Decibels in over the threshold for each one out |
+| `KneeDb` | 6 | The width of the soft bend round the threshold; 0 is sharp |
+| `AttackSeconds` | 0.01 | How fast it comes down (a time constant) |
+| `ReleaseSeconds` | 0.15 | How fast it lets go |
+| `MakeupDb` | 0 | Gain after it |
+
+### `Limiter`
+
+Keeps the output under a ceiling, for the end of a mix: it looks `LatencyFrames` (64) ahead, delaying the sound by as
+much, so its gain is down before a peak arrives, and clamps whatever still gets past.
+
+| Control | Default | Meaning |
+|---|---|---|
+| `CeilingDb` | −1 | The most the output reaches |
+| `ReleaseSeconds` | 0.1 | How fast the gain comes back after a peak |
+
+### `Eq`
+
+A low shelf, two peaks and a high shelf, all flat until set. A band's filters are worked out again only in a block
+where one of its values changed.
+
+| Control | Default | Meaning |
+|---|---|---|
+| `LowHz`, `LowDb` | 120, 0 | The low shelf |
+| `Peak1Hz`, `Peak1Q`, `Peak1Db` | 500, 1, 0 | The first peak: its centre, sharpness and gain |
+| `Peak2Hz`, `Peak2Q`, `Peak2Db` | 3000, 1, 0 | The second peak |
+| `HighHz`, `HighDb` | 8000, 0 | The high shelf |
+
+### `Distortion`
+
+Drives the sound into a curve, oversampled so its new harmonics don't alias; then a tone control and a speaker
+cabinet's response. `new Distortion(curve, cabinet, oversampling)`: `DistortionCurve` is `Soft` (tanh), `Hard` (a
+cubic into a hard clip), `Asymmetric` (tanh off centre, even harmonics) or `Fold` (folds back past ±1); `Cabinet` is
+`None`, `OneByTwelve` or `FourByTwelve`; oversampling is 1, 2 or 4. The dry sound is delayed by the oversampler's own
+`DryDelayFrames` so a mix lines up exactly.
+
+| Control | Default | Meaning |
+|---|---|---|
+| `DriveDb` | 12, eased | How hard the sound is pushed into the curve |
+| `ToneHz` | 4000 | A low-pass after the curve |
+| `OutputDb` | −6, eased | The distorted sound's level |
+| `Mix` | 1, eased | The distorted sound's share |

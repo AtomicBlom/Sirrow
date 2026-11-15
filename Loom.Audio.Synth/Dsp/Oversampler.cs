@@ -35,6 +35,14 @@ public sealed class Oversampler
 	/// <summary>The longest block, at the base rate, it takes.</summary>
 	public int MaxBlockFrames { get; }
 
+	/// <summary>
+	/// How far a block taken up and back down is delayed, in frames at the base rate: 31 at 2×, 47 at 4×, a whole number so
+	/// a dry signal delayed by it lines up exactly (a mix of the two then doesn't comb).
+	/// </summary>
+	public int LatencyFrames => Factor == 2 ? 31 : 47;
+
+	private float _carry; // the last sample at twice the rate from the 4× path's previous block, for its one-sample delay
+
 	/// <summary>Raises <paramref name="input"/> to <see cref="Factor"/> times its rate in <paramref name="output"/>, which holds input.Length · Factor samples.</summary>
 	public void Up(ReadOnlySpan<float> input, Span<float> output)
 	{
@@ -60,6 +68,13 @@ public sealed class Oversampler
 		}
 		var middle = _scratch.AsSpan(0, output.Length * 2);
 		_down2.Down(input, middle);
+		// One sample more at twice the rate: the stages' delays alone come to 93 samples there, half a sample short of a
+		// whole one at the base rate, and a dry signal can only be delayed by whole samples to line up with this one
+		var carry = _carry;
+		_carry = middle[^1];
+		for (var i = middle.Length - 1; i > 0; i--)
+			middle[i] = middle[i - 1];
+		middle[0] = carry;
 		_down1.Down(middle, output);
 	}
 
@@ -123,13 +138,15 @@ public sealed class Oversampler
 			}
 		}
 
+		// Keeps the even samples: each output is filtered right after the first of its pair arrives, so a pair of stages, up
+		// and down, delays by a whole number of samples at the lower rate
 		public void Down(ReadOnlySpan<float> input, Span<float> output)
 		{
 			for (var i = 0; i < output.Length; i++)
 			{
 				Push(input[2 * i]);
-				Push(input[2 * i + 1]);
 				output[i] = Filter();
+				Push(input[2 * i + 1]);
 			}
 		}
 	}
