@@ -92,7 +92,7 @@ on the audio thread. Per-sample methods are inlined.
 | `EnvelopeShape`, `Envelope` | Attack, decay, sustain, release: a straight attack, exponential falls of 60 dB over their times. `Struck(seconds)`, `Gate`. `Next()` a sample, or `Fill(span)` a block at a time |
 | `Lfo` | A slow sine to move something else |
 | `Resonator` | One ringing mode: an impulse rings at about unit amplitude and dies by 60 dB over its decay |
-| `Oversampler` | 2× or 4× up and back down by half-band filters, so a waveshaper between doesn't alias. Delays by a whole `LatencyFrames` (31 or 47), so a dry copy delayed as much lines up. A class |
+| `Oversampler` | 2× or 4× up and back down by half-band filters, so a waveshaper between doesn't alias. Delays by a whole `LatencyFrames` (31 or 47), so a dry copy delayed as much lines up. Each step skips the filter's zero taps and the raised signal's zero samples, a quarter of the full filter's work. A class |
 | `Denormal` | Flushes a filter's memory to zero before it reaches the slow denormal range |
 
 Call each filter's `Flush()` once a block: a filter fed silence decays toward the denormal range, where a float is
@@ -236,7 +236,8 @@ Drives the sound into a curve, oversampled so its new harmonics don't alias; the
 cabinet's response. `new Distortion(curve, cabinet, oversampling)`: `DistortionCurve` is `Soft` (tanh), `Hard` (a
 cubic into a hard clip), `Asymmetric` (tanh off centre, even harmonics) or `Fold` (folds back past ±1); `Cabinet` is
 `None`, `OneByTwelve` or `FourByTwelve`; oversampling is 1, 2 or 4. The dry sound is delayed by the oversampler's own
-`DryDelayFrames` so a mix lines up exactly.
+`DryDelayFrames` so a mix lines up exactly. **Cost:** a stereo distortion at 4× with a cabinet is the dearest
+effect; on a song's group it runs every block whether its tracks play or not.
 
 | Control | Default | Meaning |
 |---|---|---|
