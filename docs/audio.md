@@ -110,6 +110,9 @@ var beep = Audio.CreateClip(samples, channels: 1, sampleRate: 44_100); // sample
   The conversion is a 4-point Hermite curve, which doesn't filter on the way down: a 96 kHz clip loaded at 48 kHz can
   alias faintly. Supply clips at the engine's rate where that matters.
 - **Any thread may make a clip.** Decode on a loading thread (`ReadContentAsync`) and play on the frame thread.
+- Code that keeps samples itself (a synthesizer's sample player, a tool) decodes without an engine:
+  `AudioDecoder.DecodeWav`, `DecodeOgg`, or `Decode` (either, by the file's first four bytes) give an `AudioData` at
+  the file's own rate, with the same exceptions.
 - A clip belongs to the engine whose rate it was made at. Playing it on an engine at another rate throws.
 
 ### Streams
