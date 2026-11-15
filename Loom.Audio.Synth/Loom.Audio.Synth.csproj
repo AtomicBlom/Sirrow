@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- Software synthesis over Loom.Audio: DSP building blocks, effects, a fixed-voice synthesizer chip with patches as
+	     data, and music written as code (scales, notation, songs, a sequencer). Depends only on Loom.Audio and the BCL. -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<IsAotCompatible>true</IsAotCompatible>
+	</PropertyGroup>
+	<PropertyGroup Label="NuGet">
+		<PackageId>Loom.Audio.Synth</PackageId>
+		<Description>Software synthesis for Loom: DSP building blocks, effects, a 16-operator synthesizer chip with patches as data, sampled drum kits, and music written as code.</Description>
+		<PackageTags>audio;synthesis;fm;music;sequencer;gamedev;dotnet</PackageTags>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+	</PropertyGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="Loom.Tests" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Loom.Audio\Loom.Audio.csproj" />
+	</ItemGroup>
+</Project>

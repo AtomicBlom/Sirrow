@@ -17,6 +17,9 @@ platform's output device behind one seam, `IAudioDevice`:
 arpeggiator timed on the audio clock, and a clip fired from the game. It builds as a desktop exe, an Android APK and a
 browser app from the same source.
 
+Sound built on top of the mixer (rendering offline to measure it or save it as a WAV file) is in
+[`Loom.Audio.Synth`](../Loom.Audio.Synth), and [the synthesis guide](synth.md) covers it.
+
 ---
 
 ## 1. Turning it on
@@ -474,6 +477,7 @@ whenever the host pumps it), and it pauses and resumes on request.
 
 An `AudioEngine` also works on its own, over any `IAudioDevice`. `OfflineAudioDevice` renders only when asked, on the
 caller's thread: for tests, for rendering to a file faster than real time, and for a host that pumps audio itself.
+`Loom.Audio.Synth`'s `OfflineSession` wraps one, keeping what it renders ([the synthesis guide](synth.md)).
 `Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioDuckTests`, `Audio3DTests`, `AudioStreamTests`, `AudioEventQueueTests`,
 `WavDecoderTests`, `VorbisDecoderTests`, `FlacDecoderTests`), and the real
 SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is missing.
