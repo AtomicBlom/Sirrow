@@ -63,4 +63,66 @@ public struct Envelope
 		}
 		return _level;
 	}
+
+	/// <summary>
+	/// The next <c>levels.Length</c> samples' levels, the same as as many <see cref="Next"/> calls, a stage at a time: for a
+	/// voice that renders a block per operator rather than a sample.
+	/// </summary>
+	public void Fill(Span<float> levels)
+	{
+		var i = 0;
+		var n = levels.Length;
+		while (i < n)
+		{
+			switch (_stage)
+			{
+				case Stage.Attack:
+					while (i < n)
+					{
+						_level += _attackStep;
+						if (_level >= 1f)
+						{
+							_level = 1f;
+							_stage = Stage.Decay;
+							levels[i++] = 1f;
+							break;
+						}
+						levels[i++] = _level;
+					}
+					break;
+				case Stage.Decay:
+					{
+						var level = _level;
+						var sustain = _sustain;
+						var factor = _decayFactor;
+						for (; i < n; i++)
+						{
+							level = sustain + (level - sustain) * factor;
+							levels[i] = level;
+						}
+						_level = level;
+					}
+					break;
+				case Stage.Release:
+					while (i < n)
+					{
+						_level *= _releaseFactor;
+						if (_level < 1e-4f)
+						{
+							_level = 0f;
+							_stage = Stage.Idle;
+							levels[i++] = 0f;
+							break;
+						}
+						levels[i++] = _level;
+					}
+					break;
+				default:
+					_level = 0f;
+					levels[i..].Clear();
+					i = n;
+					break;
+			}
+		}
+	}
 }

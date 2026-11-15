@@ -1,7 +1,7 @@
 # Synthesis
 
 What [`Loom.Audio.Synth`](../Loom.Audio.Synth) adds over [the mixer](audio.md): the DSP building blocks a source is
-made of, effects for buses, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to.
+made of, effects for buses, a 16-operator synthesizer chip with patches, samples and drum kits, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to.
 
 The library depends only on `Loom.Audio` and the BCL. The Loom SDK doesn't reference it for an app: an app or test
 project that wants it references it itself.
@@ -87,7 +87,7 @@ on the audio thread. Per-sample methods are inlined.
 | `Svf` | A 12 dB-an-octave state-variable filter (low, band, high), stable while its cutoff moves; the band pass is unity at its centre |
 | `Biquad` | Cookbook filters for equalisation: low and high pass, peak, shelves. Set rarely |
 | `DelayLine` | A delay read at whole or fractional (Hermite) delays; read, then write, each sample. A class: make it in `OnStart` |
-| `EnvelopeShape`, `Envelope` | Attack, decay, sustain, release: a straight attack, exponential falls of 60 dB over their times. `Struck(seconds)`, `Gate` |
+| `EnvelopeShape`, `Envelope` | Attack, decay, sustain, release: a straight attack, exponential falls of 60 dB over their times. `Struck(seconds)`, `Gate`. `Next()` a sample, or `Fill(span)` a block at a time |
 | `Lfo` | A slow sine to move something else |
 | `Resonator` | One ringing mode: an impulse rings at about unit amplitude and dies by 60 dB over its decay |
 | `Oversampler` | 2× or 4× up and back down by half-band filters, so a waveshaper between doesn't alias. Delays by a whole `LatencyFrames` (31 or 47), so a dry copy delayed as much lines up. A class |
@@ -242,3 +242,121 @@ cubic into a hard clip), `Asymmetric` (tanh off centre, even harmonics) or `Fold
 | `ToneHz` | 4000 | A low-pass after the curve |
 | `OutputDb` | −6, eased | The distorted sound's level |
 | `Mix` | 1, eased | The distorted sound's share |
+
+## 6. Patches: `Loom.Audio.Synth.Chip`
+
+A `Patch` is an instrument as data: up to 16 operators, which of them are heard, and what the voice does after them.
+It is immutable. Write one with `Patch.Build`, whose action adds operators to a `PatchBuilder` and routes them:
+
+```csharp
+var bell = Patch.Build("bell", p =>
+{
+	var modulator = p.Sine(3.5f, Env.Decay(0.4f));
+	var carrier = p.Sine(1f, Env.Decay(1.5f)).ModulatedBy(modulator, index: 2f);
+	p.Out(carrier, p.Sine(5f, Env.Decay(0.3f)).At(0.2f));
+	p.Filter(Filter.LowPass(6000f, keyTrack: 0.5f));
+	p.Send(ChipSend.Space, 0.3f);
+});
+```
+
+Each operator method returns an `Op` to route: `ModulatedBy(op, index)`, `Feedback(radians)`, `DrivenBy(ops…)`,
+`Detune(cents)`, `Fixed(hz)`, and `At(level)` for `Out`. `Env.Adsr(a, d, s, r)`, `Env.Decay(seconds)` (struck: dying
+60 dB over its time whether held or not) and `Env.Gate` are the envelopes; `Filter.LowPass`, `BandPass` and `HighPass`
+the filters, with key tracking, velocity and an envelope of their own.
+
+| Operator | What it makes |
+|---|---|
+| `Sine(ratio, envelope, level, velocity)` | A sine at `ratio` times the note, phase-modulated by any operators before it (FM), with feedback on itself |
+| `Wave(waveform, ratio, …)` | A band-limited saw or pulse |
+| `Noise(envelope, …, pink)` | White or pink noise |
+| `Level(envelope, …)` | Its envelope as a level: a breath's pressure |
+| `Sample(samples, …, oneShot)` | A recording from a `SampleSet`, pitched from its zone's root; one-shot plays to its end |
+| `String(ratio, decaySeconds, damping)` | A plucked string: a burst of noise (or its drivers) round a tuned delay line, ringing for `decaySeconds` |
+| `Tube(ratio)` | A flute (the Synthesis Toolkit's): a jet driving a bore, blown by its drivers, a `Level` and a quiet `Noise` |
+
+After the operators, in order: the heard operators mixed, the filter, drive (a soft clip, 0 to 1), the gain (times the
+velocity squared), pan, and the two sends. A patch also sets vibrato (after a delay), a pitch drop at each note's
+start, mono with glide, and macros: eight per instrument, each moving a target (the cutoff, drive, gain, a send, the
+vibrato's depth, an operator's level) from one value to another as the game turns it from 0 to 1.
+
+**The routing rule: an operator is modulated or driven only by one made before it.** So the operators render in
+order, each reading the blocks of those before. `Build` checks the rest too, and throws a `PatchException` naming the
+patch: at most 16 operators; at least one heard; modulators and feedback on a `Sine` only, drivers on a `String` or
+`Tube` only; at most two strings and one tube a patch; a tube driven; a sample with samples.
+
+The tube is the touchiest. It must be blown at a sustain of 0.8 or more (a `Level` of 1 at an envelope's sustain of
+0.8) to speak below E4; it eases its own pressure below G#4 so low notes stay in their register, and it compensates
+its loop's filters' delay at each note, so it holds within 20 cents from G3 to C6.
+
+## 7. Samples and kits
+
+`SampleData` is a mono recording at its own rate (`SampleData.From(AudioDecoder.Decode(bytes))`). A `SampleZone` says
+which notes and velocities it plays for and its root; a `SampleSet` picks among zones by note and velocity, and among
+alternate takes of the same range in turn.
+
+A `DrumKit` is pieces, each sampled in velocity layers of alternate takes, or synthesised from a patch played at note
+60 (`DrumKit.FromPatches`). `Kit` names the common pieces (`Kick`, `Snare`, `HatClosed`, `Crash` and the rest) so a
+song written for one kit plays on another; any other name is allowed. A hit picks the first layer up to its velocity
+and the next take in turn. A piece in a choke group above 0 silences the group's other pieces over 30 ms when hit: a
+closed hi-hat the open one.
+
+`DrumKit.Load(read, "kits/rock/kit.json")` reads a manifest and every file it names through `read`, relative to the
+manifest's folder, so a kit loads from disk, embedded resources or a package alike. `tools/kit-cut.cs` writes these:
+
+```json
+{
+  "name": "rock",
+  "source": "Big Rusty Drums, Karoryfer Samples, CC0-1.0",
+  "pieces": [
+    { "piece": "kick", "gainDb": 0, "pan": 0, "choke": 0,
+      "layers": [ { "upTo": 0.35, "takes": ["kick_1a.ogg", "kick_1b.ogg"] },
+                  { "upTo": 1.0,  "takes": ["kick_2a.ogg", "kick_2b.ogg"] } ] }
+  ]
+}
+```
+
+A missing file, a layer with no takes, or layers out of rising `upTo` order throw `InvalidDataException` naming the
+manifest and the piece.
+
+## 8. The chip: `SynthChip`
+
+A `SynthChip` is an `AudioSource` that plays instruments on a pool of voices:
+
+```csharp
+var chip = new SynthChip(new ChipOptions
+{
+	Voices = 32,
+	Groups = [new("main"), new("guitars", () => new Distortion(cabinet: Cabinet.FourByTwelve))],
+});
+var bell = chip.AddInstrument(bellPatch);
+var guitar = chip.AddInstrument(guitarPatch, group: 1);
+var drums = chip.AddKit(kit);
+Audio.Play(chip, music);
+
+var note = chip.NoteOn(bell, 72, velocity: 0.7f);
+chip.NoteOff(note);
+chip.Play(guitar, 52, 0.8f, seconds: 0.5f);
+chip.Hit(drums, Kit.Snare, 0.9f);
+chip.SetMacro(guitar, new Macro(1), 0.6f);
+```
+
+- **Groups** each run a chain of effects over their instruments, then into the chip's master. **The two sends** are
+  shared by every patch: `ChipSend.Space` (a reverb by default) and `ChipSend.Echo` (a delay, all wet). The master's
+  own effects run last. Effects are factories, since each chip makes its own instances.
+- **Stealing.** Past its voices a note takes the voice released longest, or else the oldest, fading it out over 128
+  samples first. `Stats.StolenVoices` counts them.
+- **Mono** patches have one voice: a new note moves it, gliding, with its envelopes left alone.
+- Each call checks its arguments on the game thread, then queues an event the chip takes at its next block, so a note
+  is heard within a block. Nothing allocates once the chip plays. A note is a MIDI number and may be fractional;
+  velocity is 0 to 1, and the level goes as its square.
+
+**The cost**, measured on a Snapdragon X laptop in Release, ten seconds rendered:
+
+| Load | Times real time |
+|---|---|
+| 32 voices of 16 plain sines, all heard | 5.8 |
+| 16 voices of a 4-operator FM patch with feedback and a filter | 17 to 21 |
+| An empty chip (its reverb and echo only) | 137 |
+
+Feedback and the filter are each about a fifth of a voice's cost: both are recursions, each sample waiting on the one
+before.
