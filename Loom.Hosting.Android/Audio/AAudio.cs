@@ -84,6 +84,9 @@ internal static unsafe partial class AAudio
 	public static partial int AAudioStream_getFramesPerBurst(nint stream);
 
 	[LibraryImport(Lib), UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+	public static partial int AAudioStream_getXRunCount(nint stream);
+
+	[LibraryImport(Lib), UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
 	public static partial int AAudioStream_getBufferCapacityInFrames(nint stream);
 
 	[LibraryImport(Lib), UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

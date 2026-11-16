@@ -15,6 +15,10 @@ namespace Loom.Audio;
 /// The highest <paramref name="RenderLoad"/> since the mixer started (its first quarter second left out, while the mix compiles),
 /// or since <see cref="AudioEngine.ResetMaxRenderLoad"/>.
 /// </param>
+/// <param name="DeviceUnderruns">
+/// Times the output ran out of samples since it opened, as the platform counts them (<see cref="IAudioDevice.Underruns"/>):
+/// each is a click or a gap. -1 where the platform doesn't count them.
+/// </param>
 public readonly record struct AudioStats(
 	long FramesRendered,
 	long Callbacks,
@@ -23,4 +27,5 @@ public readonly record struct AudioStats(
 	int DroppedVoices,
 	float Peak,
 	double RenderLoad,
-	double MaxRenderLoad);
+	double MaxRenderLoad,
+	int DeviceUnderruns);

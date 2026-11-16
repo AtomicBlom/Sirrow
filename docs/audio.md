@@ -488,6 +488,13 @@ allocations, as Loom's render loop is, keeps its audio safe as well.
 | `ActiveVoices`, `DroppedVoices` | Voices playing now, and plays dropped because every voice was busy. |
 | `Peak` | The loudest sample of the last buffer, before the clip to -1..1. |
 | `RenderLoad`, `MaxRenderLoad` | How long the last render took, as a fraction of the time its samples last (0.1 is 10% of the deadline), and the highest since the first quarter second (or since `Audio.ResetMaxRenderLoad()`, which a display showing each second's peak calls once a frame or once a second). Near 1, the output drops out. |
+| `DeviceUnderruns` | How many times the output ran out of samples since it opened, as the platform counts them (`IAudioDevice.Underruns`): each is a click or a gap. AAudio counts them (its xruns, carried across a reopen); SDL and the browser don't, and report -1. |
+
+On Android the load reads high for the work done: AAudio runs its callback on a thread the scheduler keeps on a slow,
+clocked-down core until the load asks for more, against a deadline of a burst or two (2 ms at 96 frames). A mix that
+costs 2% of a core measured offline can read 30% there, with peaks past 50%, and still not drop out: on a Galaxy S23
+Ultra, a race of three minutes at 30% (peaks to 78%) added no underruns to the ten its start made, while the mix was
+compiling and the app loading on every core. The underruns, not the load, say whether it drops out.
 
 ---
 

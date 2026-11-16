@@ -27,6 +27,12 @@ public interface IAudioDevice : IDisposable
 	/// </summary>
 	int BufferFrames { get; }
 
+	/// <summary>
+	/// How many times the output ran out of samples since the device opened, as the platform counts them (AAudio's xruns):
+	/// each is a click or a gap. -1 when the platform doesn't count them.
+	/// </summary>
+	int Underruns => -1;
+
 	/// <summary>Starts asking <paramref name="renderer"/> for samples, on the device's own thread. Called once.</summary>
 	void Start(IAudioRenderer renderer);
 

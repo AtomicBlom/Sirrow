@@ -31,6 +31,7 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 	private bool _running;
 	private bool _disposed;
 	private bool _exclusive = true; // asked for until an exclusive stream is taken from the app twice before it starts
+	private int _closedUnderruns; // the xruns of streams closed since the device opened, so a reopen doesn't lose them
 
 	private AAudioDevice(AudioOptions options) => _options = options;
 
@@ -41,6 +42,15 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 	public int SampleRate { get; private set; }
 
 	public int BufferFrames { get; private set; }
+
+	public int Underruns
+	{
+		get
+		{
+			lock (_gate)
+				return _closedUnderruns + (_stream != 0 ? Math.Max(0, AAudio.AAudioStream_getXRunCount(_stream)) : 0);
+		}
+	}
 
 	/// <summary>Opens the output for <paramref name="options"/>, or returns null with the reason.</summary>
 	public static AAudioDevice? TryOpen(AudioOptions options, out string reason)
@@ -166,6 +176,7 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 		if (_stream == 0)
 			return;
 		AAudio.AAudioStream_requestStop(_stream);
+		_closedUnderruns += Math.Max(0, AAudio.AAudioStream_getXRunCount(_stream));
 		AAudio.AAudioStream_close(_stream);
 		_stream = 0;
 	}

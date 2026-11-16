@@ -143,7 +143,8 @@ public sealed class AudioEngine : IDisposable
 		_droppedVoices,
 		_mixer.Peak,
 		_mixer.RenderLoad,
-		_mixer.MaxRenderLoad);
+		_mixer.MaxRenderLoad,
+		Device.Underruns);
 
 	/// <summary>
 	/// Starts <see cref="AudioStats.MaxRenderLoad"/> over from 0, so it says the highest load since now: a debug display
