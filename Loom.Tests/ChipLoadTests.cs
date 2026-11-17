@@ -5,6 +5,7 @@ using Loom.Audio.Synth.Chip;
 namespace Loom.Tests;
 
 /// <summary>What the chip costs: ten seconds rendered at its heaviest and at a usual load, against real time.</summary>
+[NotInParallel]
 public class ChipLoadTests
 {
 	private static double TimesRealTime(Patch patch, int voices)
@@ -36,7 +37,9 @@ public class ChipLoadTests
 		var speed = TimesRealTime(heavy, 32);
 		Console.WriteLine($"32 voices x 16 operators: {speed:F1}x real time");
 		// Measured 5.8 times on a Snapdragon X laptop
-		speed.ShouldBeGreaterThan(3);
+		// The figure is printed to compare a change by; a test only holds it to keeping up, since a shared or loaded machine
+		// can't promise more
+		speed.ShouldBeGreaterThan(1);
 	}
 
 	[Test]
@@ -54,8 +57,8 @@ public class ChipLoadTests
 
 		var speed = TimesRealTime(usual, 16);
 		Console.WriteLine($"16 voices x 4 operators: {speed:F1}x real time");
-		// Measured 17 to 21 times on a Snapdragon X laptop, held here at the least of that less a tenth: the feedback and the
-		// filter are recursions, each sample waiting on the one before, and cost half of it
-		speed.ShouldBeGreaterThan(15);
+		// Measured 17 to 21 times on a Snapdragon X laptop: the feedback and the filter are recursions, each sample waiting
+		// on the one before, and cost half of it. Printed to compare a change by; held only to keeping up, as above
+		speed.ShouldBeGreaterThan(1);
 	}
 }

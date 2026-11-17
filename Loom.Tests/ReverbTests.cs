@@ -46,6 +46,7 @@ public class ReverbTests
 		left.ShouldAllBe(x => float.IsFinite(x));
 		right.ShouldAllBe(x => float.IsFinite(x));
 		MathF.Max(AudioAnalysis.Peak(left), AudioAnalysis.Peak(right)).ShouldBeLessThan(4f);
+		AudioAnalysis.Rms(left.AsSpan(20 * Rate)).ShouldBeGreaterThan(0.01f);   // a room still answering, not a silent one
 	}
 
 	[Test]
@@ -125,6 +126,7 @@ public class ReverbTests
 		Run(reverb, Noise(Rate, 0.5f, seed: 1), Noise(Rate, 0.5f, seed: 2));
 		var silence = new float[5 * Rate];
 		Run(reverb, silence, new float[silence.Length]);
+		AudioAnalysis.Peak(silence.AsSpan(0, Rate / 10)).ShouldBeGreaterThan(1e-3f);   // there was a tail to die away
 
 		var left = new float[256];
 		var right = new float[256];

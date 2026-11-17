@@ -106,6 +106,7 @@ public class ChipTests
 		var pad = rig.Chip.AddInstrument(Patch.Build("pad", p => p.Out(p.Sine(1f, Env.Adsr(0.01f, 0.1f, 0.5f, 0.2f)))));
 		var note = rig.Chip.NoteOn(pad, 60, velocity: 1f);
 		rig.Seconds(0.3);
+		rig.PeakBoth(0.1, 0.1).ShouldBeGreaterThan(0.1f);   // it sounded: a quiet tail proves nothing of a note never heard
 		rig.Chip.NoteOff(note);
 		rig.Session.Clear();
 		rig.Seconds(0.6);
@@ -121,6 +122,7 @@ public class ChipTests
 		rig.Chip.Play(rig.Chip.AddInstrument(ChipRig.Tone), 60, 1f, seconds: 0.25f);
 		rig.Seconds(0.6);
 
+		rig.PeakBoth(0.1, 0.1).ShouldBeGreaterThan(0.1f);   // it sounded first
 		rig.PeakBoth(0.5, 0.1).ShouldBe(0f);
 		rig.Chip.Stats.ActiveVoices.ShouldBe(0);
 	}
@@ -411,5 +413,6 @@ public class ChipTests
 		for (var i = 0; i < 512; i++)
 			Block(i);
 		(GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+		chip.Stats.ActiveOperators.ShouldBeGreaterThan(0);   // and it was playing: not silence allocating nothing
 	}
 }

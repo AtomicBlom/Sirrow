@@ -147,9 +147,11 @@ public class AheadSourceTests
 			engine.Update();
 		}
 		(GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+		block.Max().ShouldBeGreaterThan(0f);   // and frames came through: not silence allocating nothing
 	}
 
 	[Test]
+	[NotInParallel]
 	public void On_its_own_thread_it_keeps_up_with_a_device_in_real_time()
 	{
 		using var engine = new AudioEngine(new NullAudioDevice(Rate), new AudioOptions { Work = AudioWork.Thread });
@@ -160,6 +162,7 @@ public class AheadSourceTests
 		engine.Update();
 
 		ahead.Underruns.ShouldBe(0);
-		ahead.FramesHeard.ShouldBeInRange((long)(0.9 * Rate), (long)(1.1 * Rate));
+		// A second of wall clock, give or take what a loaded machine's sleep and scheduler add
+		ahead.FramesHeard.ShouldBeInRange((long)(0.75 * Rate), (long)(1.25 * Rate));
 	}
 }

@@ -19,6 +19,8 @@ public class LimiterTests
 		var ceiling = AudioAnalysis.FromDb(-1f) + 1e-4f;
 		AudioAnalysis.Peak(left).ShouldBeLessThanOrEqualTo(ceiling);
 		AudioAnalysis.Peak(right).ShouldBeLessThanOrEqualTo(ceiling);
+		// And held there, not merely silenced
+		AudioAnalysis.Peak(left).ShouldBeGreaterThan(0.8f * ceiling);
 	}
 
 	[Test]
