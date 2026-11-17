@@ -37,6 +37,8 @@ public sealed class SongTrack
 	/// <summary>The octave its lines' degree 1 sounds in: 4 (middle C's) unless set.</summary>
 	public SongTrack Octave(int octave)
 	{
+		Song.CheckOpen();
+
 		OctaveValue = octave;
 		return this;
 	}
@@ -44,6 +46,8 @@ public sealed class SongTrack
 	/// <summary>Its level, in decibels.</summary>
 	public SongTrack Level(float db)
 	{
+		Song.CheckOpen();
+
 		GainDb = db;
 		return this;
 	}
@@ -52,6 +56,8 @@ public sealed class SongTrack
 	/// <exception cref="ArgumentOutOfRangeException">A pan outside -1 to 1.</exception>
 	public SongTrack Pan(float pan)
 	{
+		Song.CheckOpen();
+
 		if (!float.IsFinite(pan) || pan < -1f || pan > 1f)
 			throw new ArgumentOutOfRangeException(nameof(pan), pan, $"Track '{Name}': a pan runs from -1 (left) to 1 (right).");
 		PanValue = pan;
@@ -66,6 +72,8 @@ public sealed class SongTrack
 	/// <exception cref="ArgumentOutOfRangeException">A time or a share below 0.</exception>
 	public SongTrack Humanise(float timingMs, float velocity)
 	{
+		Song.CheckOpen();
+
 		if (!float.IsFinite(timingMs) || timingMs < 0f)
 			throw new ArgumentOutOfRangeException(nameof(timingMs), timingMs, $"Track '{Name}': a looseness in time is 0 or more milliseconds.");
 		if (!float.IsFinite(velocity) || velocity < 0f || velocity > 1f)
@@ -82,6 +90,8 @@ public sealed class SongTrack
 	/// <exception cref="ArgumentOutOfRangeException">A ratio outside 0.5 to 0.9, or a step of no ticks.</exception>
 	public SongTrack Swing(float ratio, int stepTicks = Ticks.Eighth)
 	{
+		Song.CheckOpen();
+
 		if (!float.IsFinite(ratio) || ratio < 0.5f || ratio > 0.9f)
 			throw new ArgumentOutOfRangeException(nameof(ratio), ratio, $"Track '{Name}': swing runs from 0.5 (straight) to 0.9.");
 		if (stepTicks <= 0)
@@ -94,10 +104,11 @@ public sealed class SongTrack
 	/// <summary>One of its patch's macros, to follow a cue or hold at a value.</summary>
 	public TrackMacro Macro(Macro macro)
 	{
+		Song.CheckOpen();
 		var existing = _macros.Find(m => m.Macro == macro);
 		if (existing is not null)
 			return existing;
-		var made = new TrackMacro(macro);
+		var made = new TrackMacro(Song, macro);
 		_macros.Add(made);
 		return made;
 	}

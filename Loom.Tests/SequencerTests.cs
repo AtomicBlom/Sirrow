@@ -200,7 +200,6 @@ public class SequencerTests
 		}
 		using (var rig = new MusicRig())
 		{
-			var cue = new Cue("never");
 			var song = new Song("forced");
 			var click = song.Track("click", MusicRig.Click);
 			var placement = song.Section("a", 1).Play(click, Line.Quarters("1 1 1 1"));
@@ -209,7 +208,6 @@ public class SequencerTests
 			rig.Player.Force(placement, PlacementState.Off);
 			rig.Step(MusicRig.Bar);
 			MusicRig.Onsets(rig.Left()).ShouldAllBe(o => o < MusicRig.Bar);
-			placement.When(cue.Above(0.5f));
 			rig.Player.Force(placement, PlacementState.On);
 			rig.Step(MusicRig.Bar);
 			MusicRig.Onsets(rig.Left()).ShouldContain(o => Math.Abs(o - 2 * MusicRig.Bar) <= 16);

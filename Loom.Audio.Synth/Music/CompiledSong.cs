@@ -161,6 +161,10 @@ internal sealed class CompiledSong
 
 		var order = song.Conductor is not null ? [] : song.OrderList.Count > 0 ? song.OrderList.Select(o => o.Index).ToArray() : [0];
 		ChipGroup[] groups = [new("main"), .. song.Groups.Select(g => new ChipGroup(g.Name, g.Effects))];
+
+		// What plays is made from the song as it is now: from here on it is fixed
+		song.MarkCompiled();
+
 		return new CompiledSong(song, scale)
 		{
 			Tempo = song.Tempo,

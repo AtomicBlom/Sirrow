@@ -30,26 +30,99 @@ public sealed class Song(string name)
 	/// <summary>Its name.</summary>
 	public string Name { get; } = name ?? throw new ArgumentNullException(nameof(name));
 
+	// Fixed once a player has compiled it: what plays was made from it, and a change after would play nowhere, or past the
+	// end of what was compiled. A rebuild makes a new song
+	internal bool IsCompiled { get; private set; }
+
+	internal void MarkCompiled() => IsCompiled = true;
+
+	// Every change to the song, its sections, tracks, macros and placements asks this first
+	internal void CheckOpen()
+	{
+		if (IsCompiled)
+			throw new InvalidOperationException($"Song '{Name}' has been played, and is fixed: build a new one to change it.");
+	}
+
 	/// <summary>Its tempo, in beats (quarter notes) a minute. Default 120.</summary>
-	public float Tempo { get; set; } = 120f;
+	public float Tempo
+	{
+		get;
+		set
+		{
+			CheckOpen();
+			field = value;
+		}
+	} = 120f;
 
 	/// <summary>Its time signature. Default 4/4. Set it before placing any part: parts are checked against it.</summary>
-	public Meter Meter { get; set; } = Meter.FourFour;
+	/// <exception cref="InvalidOperationException">A part is already placed, checked against the meter it replaces.</exception>
+	public Meter Meter
+	{
+		get;
+		set
+		{
+			CheckOpen();
+			if (_sections.Exists(s => s.Placements.Count > 0))
+				throw new InvalidOperationException(
+					$"Song '{Name}': its parts were placed against {field}; set the meter before placing any part.");
+			field = value;
+		}
+	} = Meter.FourFour;
 
 	/// <summary>The scale it is written in; a player can play it in another.</summary>
-	public Scale Scale { get; set; } = Scale.Major(Note.C);
+	public Scale Scale
+	{
+		get;
+		set
+		{
+			CheckOpen();
+			field = value;
+		}
+	} = Scale.Major(Note.C);
 
 	/// <summary>How many notes sound at once. Default 32.</summary>
-	public int Voices { get; set; } = 32;
+	public int Voices
+	{
+		get;
+		set
+		{
+			CheckOpen();
+			field = value;
+		}
+	} = 32;
 
 	/// <summary>The space send's effects: <see cref="ChipOptions"/>'s default reverb unless set.</summary>
-	public Func<AudioEffect>[] SpaceEffects { get; set; } = new ChipOptions().SpaceEffects;
+	public Func<AudioEffect>[] SpaceEffects
+	{
+		get;
+		set
+		{
+			CheckOpen();
+			field = value;
+		}
+	} = new ChipOptions().SpaceEffects;
 
 	/// <summary>The echo send's effects: <see cref="ChipOptions"/>'s default delay unless set.</summary>
-	public Func<AudioEffect>[] EchoEffects { get; set; } = new ChipOptions().EchoEffects;
+	public Func<AudioEffect>[] EchoEffects
+	{
+		get;
+		set
+		{
+			CheckOpen();
+			field = value;
+		}
+	} = new ChipOptions().EchoEffects;
 
 	/// <summary>Effects over the whole song. Default none.</summary>
-	public Func<AudioEffect>[] MasterEffects { get; set; } = [];
+	public Func<AudioEffect>[] MasterEffects
+	{
+		get;
+		set
+		{
+			CheckOpen();
+			field = value;
+		}
+	} = [];
 
 	/// <summary>Its tracks, in the order made.</summary>
 	public IReadOnlyList<SongTrack> Tracks => _tracks;
@@ -94,6 +167,8 @@ public sealed class Song(string name)
 	/// <summary>A group of tracks sharing <paramref name="effects"/> (<see cref="Effects.Fx"/> makes them).</summary>
 	public SongGroup Group(string name, params Func<AudioEffect>[] effects)
 	{
+		CheckOpen();
+
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		ArgumentNullException.ThrowIfNull(effects);
 		var group = new SongGroup(name, _groups.Count + 1, effects);
@@ -104,6 +179,8 @@ public sealed class Song(string name)
 	/// <summary>A track that plays <paramref name="patch"/>: give it <see cref="Line"/>s and <see cref="Strum"/>s.</summary>
 	public SongTrack Track(string name, Patch patch, SongGroup? group = null)
 	{
+		CheckOpen();
+
 		ArgumentNullException.ThrowIfNull(patch);
 		return AddTrack(name, patch, null, group);
 	}
@@ -111,6 +188,8 @@ public sealed class Song(string name)
 	/// <summary>A track that plays <paramref name="kit"/>: give it <see cref="Beat"/>s.</summary>
 	public SongTrack Track(string name, DrumKit kit, SongGroup? group = null)
 	{
+		CheckOpen();
+
 		ArgumentNullException.ThrowIfNull(kit);
 		return AddTrack(name, null, kit, group);
 	}
@@ -134,6 +213,8 @@ public sealed class Song(string name)
 	/// <exception cref="NotationException">The chords have a mistake.</exception>
 	public Section Section(string name, int bars, string chords = "I")
 	{
+		CheckOpen();
+
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bars);
 		var section = new Section(this, name, _sections.Count, bars, new SectionChords(chords));
@@ -144,6 +225,8 @@ public sealed class Song(string name)
 	/// <summary>The sections played in turn, then from the first again.</summary>
 	public void Order(params Section[] sections)
 	{
+		CheckOpen();
+
 		ArgumentNullException.ThrowIfNull(sections);
 		foreach (var section in sections)
 			if (section.Song != this)
@@ -155,6 +238,8 @@ public sealed class Song(string name)
 	/// <summary>The next section chosen in code, near the end of each section, from the cues and what is playing.</summary>
 	public void Conduct(Func<Conductor, Section> next)
 	{
+		CheckOpen();
+
 		ArgumentNullException.ThrowIfNull(next);
 		Conductor = next;
 		_order = [];

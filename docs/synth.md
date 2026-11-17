@@ -557,7 +557,9 @@ frets (`Power` and `Triad` too); `Spread(ms)` sets the time between strings (12 
 
 A song sets its `Tempo` (120), `Meter` (4/4; set it before placing any part, since parts are checked against it), `Scale`,
 `Voices` (32, its chip's), and the effects of its chip's sends and master (`SpaceEffects`, `EchoEffects`,
-`MasterEffects`, as factories). It holds at most 64 tracks.
+`MasterEffects`, as factories). It holds at most 64 tracks. Once a player has compiled it (`Play`, `Swap`) a song is
+fixed: changing it, its tracks, sections, macros or placements throws, since what plays was made from it. Build a new
+one to change it, as a rebuild does.
 
 A track is a patch or a kit, with its octave (degree 1's, 4 unless set), level, pan, `Humanise(timingMs, velocity)` (each
 note late by up to twice `timingMs`, `timingMs` on average, never early, the same every time), `Swing(ratio)` (0.667 a

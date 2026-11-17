@@ -98,4 +98,32 @@ public class SongCompileTests
 		up.Min().ShouldBe(640);
 		(up.Max() - up.Min()).ShouldBeLessThan(100);
 	}
+
+	[Test]
+	public void A_song_is_fixed_once_compiled()
+	{
+		var song = new Song("fixed");
+		var tone = song.Track("tone", ChipRig.Tone);
+		var section = song.Section("a", 1);
+		var placement = section.Play(tone, Line.Quarters("1 - - -"));
+		CompiledSong.Compile(song, song.Scale);
+
+		Should.Throw<InvalidOperationException>(() => song.Tempo = 90f).Message.ShouldContain("fixed");
+		Should.Throw<InvalidOperationException>(() => song.Track("late", ChipRig.Tone));
+		Should.Throw<InvalidOperationException>(() => section.Play(tone, Line.Quarters("5 - - -")));
+		Should.Throw<InvalidOperationException>(() => tone.Level(-6f));
+		Should.Throw<InvalidOperationException>(() => tone.Macro(new Loom.Audio.Synth.Chip.Macro(0)));
+		Should.Throw<InvalidOperationException>(() => placement.Named("late"));
+		// Compiling it again is reading it: allowed
+		Should.NotThrow(() => CompiledSong.Compile(song, song.Scale));
+	}
+
+	[Test]
+	public void A_meter_set_after_a_part_is_placed_is_refused()
+	{
+		var song = new Song("metered");
+		song.Section("a", 1).Play(song.Track("tone", ChipRig.Tone), Line.Quarters("1 - - -"));
+
+		Should.Throw<InvalidOperationException>(() => song.Meter = new Meter(3, 4)).Message.ShouldContain("before placing");
+	}
 }

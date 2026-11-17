@@ -35,6 +35,8 @@ public sealed class Section
 	/// <exception cref="ArgumentException">The track isn't this song's, or can't play that kind of part.</exception>
 	public Placement Play(SongTrack track, Part part)
 	{
+		Song.CheckOpen();
+
 		ArgumentNullException.ThrowIfNull(track);
 		ArgumentNullException.ThrowIfNull(part);
 		if (track.Song != Song)
@@ -57,6 +59,8 @@ public sealed class Section
 	/// <exception cref="ArgumentException">The track isn't this song's.</exception>
 	public void Sweep(SongTrack track, Chip.Macro macro, float from, float to)
 	{
+		Song.CheckOpen();
+
 		ArgumentNullException.ThrowIfNull(track);
 		if (track.Song != Song)
 			throw new ArgumentException($"Track '{track.Name}' belongs to another song.", nameof(track));
