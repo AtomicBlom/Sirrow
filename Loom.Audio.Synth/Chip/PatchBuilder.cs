@@ -122,7 +122,8 @@ public sealed class PatchBuilder
 	/// <summary>As <paramref name="macro"/> moves from 0 to 1, moves <paramref name="target"/> from <paramref name="from"/> to <paramref name="to"/>; <paramref name="op"/> for an operator's level.</summary>
 	public void Macro(Macro macro, MacroTarget target, float from, float to, Op? op = null) => _macros.Add((macro, target, from, to, op));
 
-	private Op Add(OperatorSpec spec)
+	// An operator from its spec as it stands, to route after; PatchSpec replays a patch through this
+	internal Op Add(OperatorSpec spec)
 	{
 		var op = new Op(this, _operators.Count, spec);
 		_operators.Add(op);

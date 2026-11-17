@@ -110,6 +110,22 @@ public sealed class SynthChip : AudioSource
 		Post(new ChipEvent { Kind = ChipEventKind.Macro, Instrument = instrument.Index, Macro = macro.Id, Value = value });
 	}
 
+	/// <summary>
+	/// Swaps the patch an instrument plays, from the chip's next block: notes already sounding finish on the patch they
+	/// started with; its macros, gain and mute carry over. For a tool editing a patch while it plays.
+	/// </summary>
+	/// <exception cref="ArgumentException">The instrument is a kit.</exception>
+	public void Replace(ChipInstrument instrument, Patch patch)
+	{
+		ArgumentNullException.ThrowIfNull(patch);
+		var state = Instrument(instrument);
+		if (state.Patch is null)
+			throw new ArgumentException("The instrument is a kit, and a kit's patch isn't replaced.", nameof(instrument));
+		var next = new ChipInstrumentState(patch, state.Group);
+		_instruments[instrument.Index] = next;
+		Post(new ChipEvent { Kind = ChipEventKind.ReplaceInstrument, Instrument = instrument.Index, Payload = next });
+	}
+
 	/// <summary>Lets every sounding note go.</summary>
 	public void AllNotesOff() => Post(new ChipEvent { Kind = ChipEventKind.AllOff });
 

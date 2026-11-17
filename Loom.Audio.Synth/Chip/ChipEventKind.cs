@@ -9,4 +9,5 @@ internal enum ChipEventKind : byte
 	Hit,
 	Macro,
 	AllOff,
+	ReplaceInstrument,
 }
