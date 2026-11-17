@@ -1,16 +1,5 @@
 namespace Loom.Audio.Synth.Chip;
 
-/// <summary>What a <see cref="ChipEvent"/> asks the chip's core to do.</summary>
-internal enum ChipEventKind : byte
-{
-	AddInstrument,
-	NoteOn,
-	NoteOff,
-	Hit,
-	Macro,
-	AllOff,
-}
-
 /// <summary>
 /// One thing for the chip's core to do, from the game thread through the chip's queue, or from a sequencer driving a
 /// core directly. A struct, so posting one allocates nothing.

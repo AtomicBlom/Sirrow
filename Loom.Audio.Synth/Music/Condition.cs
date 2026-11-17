@@ -20,33 +20,3 @@ public abstract record Condition
 	// Every cue it reads
 	internal abstract IEnumerable<CueBase> Cues { get; }
 }
-
-internal sealed record AboveCondition(Cue Cue, float Level) : Condition
-{
-	internal override IEnumerable<CueBase> Cues => [Cue];
-}
-
-internal sealed record BelowCondition(Cue Cue, float Level) : Condition
-{
-	internal override IEnumerable<CueBase> Cues => [Cue];
-}
-
-internal sealed record IsCondition(CueBase Cue, float Value) : Condition
-{
-	internal override IEnumerable<CueBase> Cues => [Cue];
-}
-
-internal sealed record AndCondition(Condition A, Condition B) : Condition
-{
-	internal override IEnumerable<CueBase> Cues => A.Cues.Concat(B.Cues);
-}
-
-internal sealed record OrCondition(Condition A, Condition B) : Condition
-{
-	internal override IEnumerable<CueBase> Cues => A.Cues.Concat(B.Cues);
-}
-
-internal sealed record NotCondition(Condition A) : Condition
-{
-	internal override IEnumerable<CueBase> Cues => A.Cues;
-}

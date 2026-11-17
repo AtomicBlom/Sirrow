@@ -1,16 +1,5 @@
 namespace Loom.Audio.Synth.Music;
 
-/// <summary>What one step of a compiled condition does.</summary>
-internal enum ConditionOpKind : byte
-{
-	Above,
-	Below,
-	Is,
-	And,
-	Or,
-	Not,
-}
-
 /// <summary>One step of a condition compiled to postfix, run on a fixed stack by the sequencer.</summary>
 internal struct ConditionOp
 {
