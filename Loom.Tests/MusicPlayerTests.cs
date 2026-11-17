@@ -240,29 +240,37 @@ public class MusicPlayerTests
 		}
 	}
 
+	private enum Mood : byte { Calm, Wild }
+
 	[Test]
 	public void Steady_play_allocates_nothing()
 	{
 		var cue = new Cue("energy", 1f);
+		var mood = new Cue<Mood>("mood", Mood.Wild);
 		var song = new Song("steady");
 		var drums = song.Track("drums", DrumKit.FromPatches("kit", (Kit.Kick, MusicRig.Click, 0), (Kit.HatClosed, MusicRig.Click, 1)));
 		var lead = song.Track("lead", ChipRig.Tone).Humanise(4f, 0.1f);
 		lead.Macro(new Macro(0)).Follow(cue);
 		var section = song.Section("a", 2, "I | IV");
 		section.Play(drums, Beat.Eighths((Kit.Kick, "x...x..."), (Kit.HatClosed, "xxxxxxxx")));
-		section.Play(lead, Line.Eighths("1 3 5 3 1 3 5 8").OverChords()).When(cue.Above(0.5f)).Level(cue);
+		section.Play(lead, Line.Eighths("1 3 5 3 1 3 5 8").OverChords()).When(cue.Above(0.5f) & !mood.Is(Mood.Calm)).Level(cue);
 		var device = new OfflineAudioDevice(MusicRig.Rate, 256);
 		using var engine = new AudioEngine(device);
 		using var player = new MusicPlayer(engine, engine.Master);
 		player.Play(song);
 		var output = new float[512];
+		var heard = 0f;
 
 		void Block(int i)
 		{
+			// A level cue and a choice cue told every block, as a game tells them every frame
 			player.Set(cue, 0.6f + (i % 3) * 0.1f);
+			player.Set(mood, i % 7 == 0 ? Mood.Calm : Mood.Wild);
 			player.Update();
 			device.Render(output);
 			engine.Update();
+			foreach (var sample in output)
+				heard = MathF.Max(heard, MathF.Abs(sample));
 		}
 
 		for (var i = 0; i < 64; i++)
@@ -271,6 +279,7 @@ public class MusicPlayerTests
 		for (var i = 0; i < 512; i++)
 			Block(i);
 		(GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+		heard.ShouldBeGreaterThan(0.01f);   // and it played: not silence allocating nothing
 	}
 
 	[Test]

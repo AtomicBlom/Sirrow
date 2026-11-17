@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace Loom.Audio.Synth.Music;
 
 /// <summary>A choice the game tells the music, one of an enum's values: which biome the car is in.</summary>
@@ -21,6 +23,13 @@ public sealed class Cue<T>(string name, T initial = default) : CueBase(name) whe
 
 	internal override float OptionValue(int index) => ToValue(Values[index]);
 
-	// The value as the sequencer holds it: the enum's number
-	internal static float ToValue(T value) => Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture);
+	// The value as the sequencer holds it: the enum's number, read by its size so nothing is boxed (the game sets a choice
+	// cue every frame)
+	internal static float ToValue(T value) => Unsafe.SizeOf<T>() switch
+	{
+		1 => Unsafe.As<T, byte>(ref value),
+		2 => Unsafe.As<T, short>(ref value),
+		4 => Unsafe.As<T, int>(ref value),
+		_ => Unsafe.As<T, long>(ref value),
+	};
 }
