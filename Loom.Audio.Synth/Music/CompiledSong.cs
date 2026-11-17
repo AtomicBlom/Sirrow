@@ -145,7 +145,7 @@ internal sealed class CompiledSong
 					Condition = [.. program],
 					LevelSlot = levelSlot,
 					GainSlot = gainSlot,
-					OnPhrase = placement.OnPhraseValue,
+					OnPhrase = placement.IsOnPhrase,
 				};
 			}
 			most = Math.Max(most, placements.Length);

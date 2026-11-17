@@ -23,8 +23,10 @@ public sealed class Section
 	/// <summary>The parts played in it.</summary>
 	public IReadOnlyList<Placement> Placements => _placements;
 
-	internal Song Song { get; }
-	internal int Index { get; }
+	/// <summary>The song it is a section of.</summary>
+	public Song Song { get; }
+	/// <summary>Where it stands among its song's sections, from 0 (<see cref="Song.Sections"/>).</summary>
+	public int Index { get; }
 	internal SectionChords Chords { get; }
 
 	/// <summary>

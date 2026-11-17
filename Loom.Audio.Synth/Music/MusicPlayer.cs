@@ -85,13 +85,33 @@ public sealed class MusicPlayer : IDisposable
 		}
 	}
 
-	// The tick within the section playing, as the audio thread last said: for a workbench's playhead
-	internal int SectionTick => _source is { } source
+	/// <summary>
+	/// The tick within the section playing (<see cref="Ticks.PerBeat"/> to a beat), as the rendering last said; -1 with
+	/// nothing playing. For a playhead over a <see cref="Pattern"/>.
+	/// </summary>
+	public int SectionTick => _source is { } source
 		? source.State.Song.Sections[Math.Min(source.SectionIndex, source.State.Song.Sections.Length - 1)].LengthTicks - source.TicksLeft
 		: -1;
 
-	// The song playing as compiled, for a workbench's patterns
-	internal CompiledSong? Compiled => Current?.Song;
+	/// <summary>
+	/// What <paramref name="placement"/> plays over one pass of its part, as the sequencer has it: its notes or hits with
+	/// their ticks, lengths and velocities, in the scale playing (or <paramref name="scale"/>, or its song's, when its song
+	/// isn't the one playing). For a tool drawing the part; it allocates, so not for every frame.
+	/// </summary>
+	public PlacementPattern Pattern(Placement placement, Scale? scale = null)
+	{
+		ArgumentNullException.ThrowIfNull(placement);
+		var song = placement.Section.Song;
+		var compiled = Current is { } playing && playing.Song.Song == song ? playing.Song : CompiledSong.Compile(song, scale ?? song.Scale);
+		var section = compiled.Sections[placement.Section.Index];
+		var part = Array.Find(section.Placements, p => p.Source == placement)
+			?? throw new ArgumentException($"Placement '{placement.Name}' isn't in its song as compiled.", nameof(placement));
+		var events = new List<PatternEvent>();
+		foreach (var e in part.Events)
+			if (e.Tick < part.LoopTicks)
+				events.Add(new PatternEvent(e.Tick, e.Length, e.Note, e.Piece, e.Velocity));
+		return new PlacementPattern(part.LoopTicks, compiled.TicksPerBar, compiled.Tracks[part.Track].Kit, events);
+	}
 
 	/// <summary>How busy its chip was at its last block.</summary>
 	public ChipStats Stats => _source?.Stats ?? default;
@@ -230,10 +250,22 @@ public sealed class MusicPlayer : IDisposable
 	/// <summary>A level cue's value as last told, or its initial value.</summary>
 	public float Get(Cue cue) => CueValue(cue);
 
-	// Any cue's value as the sequencer holds it (a choice's as its number), for a workbench that shows every kind
-	internal float GetValue(CueBase cue) => CueValue(cue);
+	/// <summary>Any cue's value as last told, or its initial value: a choice's as its number (<see cref="CueBase.OptionValue"/>).</summary>
+	public float Get(CueBase cue)
+	{
+		ArgumentNullException.ThrowIfNull(cue);
+		return CueValue(cue);
+	}
 
-	internal void SetValue(CueBase cue, float value) => Write(cue, value);
+	/// <summary>
+	/// Tells the music any cue's value as the player holds it: a level, or a choice's number (<see cref="CueBase.OptionValue"/>).
+	/// For a tool that shows every kind of cue alike; a game uses the typed overloads.
+	/// </summary>
+	public void Set(CueBase cue, float value)
+	{
+		ArgumentNullException.ThrowIfNull(cue);
+		Write(cue, value);
+	}
 
 	private float CueValue(CueBase cue) => _cues.TryGetValue(cue, out var value) ? value : cue.InitialValue;
 

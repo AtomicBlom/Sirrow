@@ -19,9 +19,11 @@ public sealed class Cue<T>(string name, T initial = default) : CueBase(name) whe
 	/// <summary>Every value it can take.</summary>
 	public IReadOnlyList<T> Values { get; } = Enum.GetValues<T>();
 
-	internal override string[] OptionNames => [.. Values.Select(v => v.ToString())];
+	/// <inheritdoc/>
+	public override IReadOnlyList<string> OptionNames => [.. Values.Select(v => v.ToString())];
 
-	internal override float OptionValue(int index) => ToValue(Values[index]);
+	/// <inheritdoc/>
+	public override float OptionValue(int index) => ToValue(Values[index]);
 
 	// The value as the sequencer holds it: the enum's number, read by its size so nothing is boxed (the game sets a choice
 	// cue every frame)

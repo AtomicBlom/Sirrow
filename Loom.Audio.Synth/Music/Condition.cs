@@ -19,4 +19,13 @@ public abstract record Condition
 
 	// Every cue it reads
 	internal abstract IEnumerable<CueBase> Cues { get; }
+
+	/// <summary>The condition in words: "energy above 0.35", "(mood is Calm or energy below 0.2)", "not ...".</summary>
+	public sealed override string ToString() => Describe();
+
+	// Its words, each kind its own
+	internal abstract string Describe();
+
+	// A level as the words put it
+	internal static string Number(float value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 }

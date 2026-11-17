@@ -18,9 +18,13 @@ public abstract class CueBase
 	// Its value before the game sets one, as the sequencer holds it
 	internal abstract float InitialValue { get; }
 
-	// A choice's options, by name, and each one's value as the sequencer holds it; none for a level
-	internal virtual string[] OptionNames => [];
-	internal virtual float OptionValue(int index) => index;
+	/// <summary>A choice's options, by name, in the order of <see cref="OptionValue"/>; none for a level.</summary>
+	public virtual IReadOnlyList<string> OptionNames => [];
+	/// <summary>
+	/// The value option <paramref name="index"/> of <see cref="OptionNames"/> stands for, as the player holds it
+	/// (<see cref="MusicPlayer.Get(CueBase)"/>, <see cref="MusicPlayer.Set(CueBase, float)"/>).
+	/// </summary>
+	public virtual float OptionValue(int index) => index;
 
 	/// <inheritdoc/>
 	public override string ToString() => Name;

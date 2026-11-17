@@ -664,6 +664,11 @@ protected override void Update(FrameTime time)
 }
 ```
 
+The workbench uses only `Loom.Audio.Synth`'s public API, so a game can build a tool of its own the same way: a
+placement's `Section`, `Track`, `Condition` (whose `ToString` says it in words), `LevelCue` and `IsOnPhrase`; a cue's
+`OptionNames` and `OptionValue`; the player's `Get` and `Set` for any cue, `SectionTick` for a playhead, and
+`Pattern(placement)`, one pass of a part's notes as the sequencer plays them.
+
 `WorkbenchView.TransportExtras` is a panel at the end of the transport bar for the host's own controls (a toggle for a
 sound of the game's own to hear under the music, say). `CaptureState` and `RestoreState` keep the song, whether it
 played and in which section, the loop, a scale played in place of the song's, the cues, the mutes, solos, gains and
