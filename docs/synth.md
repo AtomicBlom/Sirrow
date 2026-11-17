@@ -138,6 +138,11 @@ run on a synthesizer's own groups. Each is a sealed class with its controls as p
 `SmoothedParameter` properties: set their `Value` from the game at any time. A control marked *eased* glides to a new
 value; the rest are read once a block. Each allocates only when it is made and prepared.
 
+A chip's groups and a song take effects as factories, since each chip makes its own instances: `Fx.Reverb(decaySeconds,
+wet, dry)`, `Fx.Delay(seconds, feedback, pingPong, wet, dry)`, `Fx.Chorus(mix)`, `Fx.Compressor(…)`, `Fx.Duck(…)`,
+`Fx.Eq(lowDb, highDb)` and `Fx.Distortion(driveDb, toneHz, curve, cabinet, outputDb, oversampling)`, each with the
+defaults of the tables below.
+
 A reverb shared by several buses, through sends:
 
 ```csharp
@@ -333,6 +338,10 @@ the vibrato's depth, an operator's level) from one value to another as the game 
 filter's cutoff and the levels are worked out every 64 frames (1.3 ms), so a drum's falling pitch and a filter's sweep
 move rather than step.
 
+The builder's calls for these are `p.Filter(…)`, `p.Drive(amount)`, `p.Gain(db)`, `p.Pan(pan)`, `p.Send(send, level)`,
+`p.Vibrato(rate, depth, delay)`, `p.Tremolo(rate, depth)`, `p.PitchDrop(semitones, seconds)`, `p.Mono(glideSeconds)` and
+`p.Macro(macro, target, from, to, op)`. A patch hears at most `Patch.MaxOutputs` (32) operators through `Out`.
+
 **A filter is swept by octaves** (`MacroTarget.FilterOctaves`): the cutoff moves from so many octaves at the macro's 0
 to so many at its 1, which is even to the ear all the way. `FilterCutoff` multiplies the cutoff, so a macro turned
 steadily does nearly all it will do in its first few steps: from 100 Hz to 6.4 kHz it is past 3 kHz at halfway.
@@ -437,7 +446,10 @@ chip.SetMacro(guitar, new Macro(1), 0.6f);
 - **Mono** patches have one voice: a new note moves it, gliding, with its envelopes left alone.
 - Each call checks its arguments on the game thread, then queues an event the chip takes at its next block, so a note
   is heard within a block. Nothing allocates once the chip plays. A note is a MIDI number and may be fractional;
-  velocity is 0 to 1, and the level goes as its square.
+  velocity is 0 to 1, and the level goes as its square. `Hit` on a piece the kit hasn't throws, as a `Beat` naming one
+  does. `AllNotesOff` lets go of everything.
+- **Limits** (`ChipOptions`): `Voices` (32), `MaxInstruments` (64), and `EventCapacity` (1024) events waiting for the
+  next block, past which a call throws rather than drop one.
 
 **The cost**, measured on a Snapdragon X laptop in Release, ten seconds rendered:
 
@@ -542,6 +554,10 @@ A strum rings until the next character that isn't `.`. `Voicing(Open)` lays the 
 frets (`Power` and `Triad` too); `Spread(ms)` sets the time between strings (12 ms).
 
 ### Sections, tracks and placements
+
+A song sets its `Tempo` (120), `Meter` (4/4; set it before placing any part, since parts are checked against it), `Scale`,
+`Voices` (32, its chip's), and the effects of its chip's sends and master (`SpaceEffects`, `EchoEffects`,
+`MasterEffects`, as factories). It holds at most 64 tracks.
 
 A track is a patch or a kit, with its octave (degree 1's, 4 unless set), level, pan, `Humanise(timingMs, velocity)` (each
 note late by up to twice `timingMs`, `timingMs` on average, never early, the same every time), `Swing(ratio)` (0.667 a
@@ -670,3 +686,19 @@ section.
 
 After an edit, the song rebuilt is swapped in at the next bar (`MusicPlayer.Swap`), in the same section at the same bar.
 The mutes, solos, gains and forced placements carry over by name.
+
+---
+
+## 11. Not built yet
+
+- **Music in the browser costs too much to play.** There the mix runs on the frame thread, and a song of eight tracks
+  costs several milliseconds of each frame; rendering it ahead on a worker (`AudioOptions.BrowserThread`) has hung the
+  page. The chip, effects and offline rendering work there; a browser game should budget for music or leave it out.
+- **No tempo change within a song,** and no meter change: a song has one of each. A swap may bring another.
+- **The workbench is not a package.** An app references its project, and its pattern view shows a part's notes but
+  doesn't edit them: the song is edited in code.
+- **No vectorised inner loops.** The oversampler's half-band filter and the voices' operators are scalar; making them
+  wide changes the order of their sums, and so the bits a render gives.
+- **Measured on one machine.** The costs quoted here are a Snapdragon X laptop's. A denormal costs little on ARM and a
+  great deal on x64; the chip and its effects keep out of that range (envelopes go idle, filters flush once a block),
+  but nothing here was timed on x64 or in WebAssembly.

@@ -55,9 +55,21 @@ try
 {
 	foreach (var pieceNode in map["pieces"]?.AsArray() ?? [])
 	{
-		var piece = pieceNode!["piece"]!.GetValue<string>();
+		// The map checked before anything is cut, with the rules DrumKit.Load holds the manifest to: a name, layers rising in
+		// velocity, takes in each
+		var piece = pieceNode?["piece"]?.GetValue<string>() ?? throw new InvalidDataException("a piece in the map has no \"piece\" name.");
 		var maxSeconds = pieceNode["maxSeconds"]?.GetValue<double>() ?? 1.0;
-		var layers = pieceNode["layers"]!.AsArray();
+		var layers = pieceNode["layers"]?.AsArray() ?? throw new InvalidDataException($"piece '{piece}' has no \"layers\".");
+		if (layers.Count == 0)
+			throw new InvalidDataException($"piece '{piece}' has no layers.");
+		for (var l = 0; l < layers.Count; l++)
+		{
+			var upTo = layers[l]?["upTo"]?.GetValue<double>() ?? throw new InvalidDataException($"piece '{piece}': layer {l + 1} has no \"upTo\".");
+			if (l > 0 && upTo <= layers[l - 1]!["upTo"]!.GetValue<double>())
+				throw new InvalidDataException($"piece '{piece}': layer {l + 1} isn't above the layer before it: layers go softest first.");
+			if ((layers[l]!["takes"]?.AsArray().Count ?? 0) == 0)
+				throw new InvalidDataException($"piece '{piece}': layer {l + 1} has no takes.");
+		}
 
 		// Every take read and cut first, so the piece can be scaled as one
 		var cut = new List<List<float[]>>();
@@ -119,7 +131,7 @@ try
 		totalFiles += pieceFiles;
 	}
 }
-catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or NullReferenceException or FormatException)
+catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or FormatException)
 {
 	Console.Error.WriteLine($"kit-cut: {ex.Message}");
 	return 1;

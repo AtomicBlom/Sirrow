@@ -85,7 +85,8 @@ public sealed class SynthChip : AudioSource
 		Post(Note(instrument, note, velocity, pan, id, seconds));
 	}
 
-	/// <summary>Strikes a piece of a kit at <paramref name="velocity"/> (0 to 1). A piece the kit hasn't is ignored.</summary>
+	/// <summary>Strikes a piece of a kit at <paramref name="velocity"/> (0 to 1).</summary>
+	/// <exception cref="ArgumentException">The instrument is a patch, or the kit has no such piece.</exception>
 	public void Hit(ChipInstrument kit, DrumPiece piece, float velocity = 0.8f)
 	{
 		var state = Instrument(kit);
@@ -94,7 +95,7 @@ public sealed class SynthChip : AudioSource
 		CheckVelocity(velocity);
 		var index = state.Kit.IndexOf(piece);
 		if (index < 0)
-			return;
+			throw new ArgumentException($"The kit '{state.Kit.Name}' has no '{piece.Id}'.", nameof(piece));
 		Post(new ChipEvent { Kind = ChipEventKind.Hit, Instrument = kit.Index, PieceIndex = index, Velocity = velocity, Note = 60f });
 	}
 
