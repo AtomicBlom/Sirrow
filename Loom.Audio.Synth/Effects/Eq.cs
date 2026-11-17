@@ -11,6 +11,9 @@ public sealed class Eq : AudioEffect
 	private readonly Biquad[] _left = new Biquad[4];
 	private readonly Biquad[] _right = new Biquad[4];
 	private readonly float[] _last = new float[10];
+	// A band at 0 dB is flat, as near as its filter's rounding goes: it is skipped, and its filters start afresh when it
+	// is set again
+	private readonly bool[] _flat = new bool[4];
 
 	/// <summary>The low shelf's corner, in hertz. Default 120.</summary>
 	public AudioParameter LowHz { get; } = new(120f);
@@ -55,6 +58,8 @@ public sealed class Eq : AudioEffect
 		Configure();
 		for (var b = 0; b < 4; b++)
 		{
+			if (_flat[b])
+				continue;
 			ref var l = ref _left[b];
 			ref var r = ref _right[b];
 			for (var s = 0; s < left.Length; s++)
@@ -79,6 +84,23 @@ public sealed class Eq : AudioEffect
 			Both(2).SetPeak(_last[5], _last[6], _last[7], rate);
 		if (Changed(8, HighHz.Snap()) | Changed(9, HighDb.Snap()))
 			Both(3).SetHighShelf(_last[8], _last[9], rate);
+
+		Flat(0, _last[1]);
+		Flat(1, _last[4]);
+		Flat(2, _last[7]);
+		Flat(3, _last[9]);
+	}
+
+	// Whether a band at `db` is skipped; one coming back from flat starts with empty filters, not what it held before
+	private void Flat(int band, float db)
+	{
+		var flat = db == 0f;
+		if (_flat[band] && !flat)
+		{
+			_left[band].Reset();
+			_right[band].Reset();
+		}
+		_flat[band] = flat;
 	}
 
 	private bool Changed(int index, float value)

@@ -76,6 +76,9 @@ public struct Biquad
 		Denormal.Flush(ref _s2);
 	}
 
+	/// <summary>Forgets what has passed through it, its settings kept: for a filter about to be used again after a rest.</summary>
+	public void Reset() => _s1 = _s2 = 0f;
+
 	private static (float Cs, float Alpha) Angle(float hz, float q, int rate)
 	{
 		var w = 2f * MathF.PI * hz / rate;
