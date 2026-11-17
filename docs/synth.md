@@ -448,31 +448,38 @@ Music written as code, played on a chip by a sequencer on the audio clock. A son
 time it is called, so `dotnet watch` can rebuild it and `MusicPlayer.Swap` play the new one without a break:
 
 ```csharp
-static class RacePark
+static class Groove
 {
-	public static Song Build()
+	// What the game tells the song, 0 to 1, and a macro its guitar patch turns: made once, since a cue is known by its object
+	public static readonly Cue Energy = new("energy");
+	public static readonly Macro Drive = new(1);
+
+	public static Song Build(DrumKit kit, Patch bass, Patch guitar)
 	{
-		var song = new Song("race park") { Tempo = 128, Scale = Scale.Minor(Note.E) };
+		var song = new Song("groove") { Tempo = 128, Scale = Scale.Minor(Note.E) };
 		var guitars = song.Group("guitars", Fx.Distortion(24, cabinet: Cabinet.FourByTwelve));
-		var drums = song.Track("drums", Kits.Rock).Humanise(4, 0.1f);
-		var bass = song.Track("bass", Patches.PickedBass).Octave(2);
-		var rhythm = song.Track("rhythm", Patches.ElectricGuitar, guitars).Octave(3);
-		rhythm.Macro(Macros.Drive).Follow(Cues.Intensity, 0.2f, 1f);
+		var drums = song.Track("drums", kit).Humanise(4, 0.1f);
+		var low = song.Track("bass", bass).Octave(2);
+		var rhythm = song.Track("rhythm", guitar, guitars).Octave(3);
+		rhythm.Macro(Drive).Follow(Energy, 0.2f, 1f);
 
 		var verse = song.Section("verse", 4, "i | VI | III | VII");
 		verse.Play(drums, Beat.Eighths((Kit.Kick, "x... x.x."), (Kit.Snare, "..x. ..x."), (Kit.HatClosed, "xxxx xxxx")))
-			.EndWith(Beat.Sixteenths((Kit.TomHigh, "xxxx ...."), (Kit.TomLow, ".... xxxx"), (Kit.Snare, "........ ..xX")));
-		verse.Play(bass, Line.Eighths("1 1 . 1 5, 1 . 1").OverChords());
-		verse.Play(rhythm, Strum.Eighths("D.DU .UDU").Voicing(Voicing.Power)).When(Cues.Intensity.Above(0.4f));
+			.EndWith(Beat.Sixteenths((Kit.TomHigh, "xxxx .... .... ...."), (Kit.TomLow, ".... xxxx .... ...."), (Kit.Snare, ".... .... ..xX xxXX")));
+		verse.Play(low, Line.Eighths("1 1 . 1 5, 1 . 1").OverChords());
+		verse.Play(rhythm, Strum.Eighths("D.DU .UDU").Voicing(Voicing.Power)).When(Energy.Above(0.4f));
 
 		var chorus = song.Section("chorus", 4, "VI VII | i | VI VII | i");
 		chorus.Play(drums, Beat.Eighths((Kit.Kick, "x.x. x.x."), (Kit.Snare, "..X. ..X."), (Kit.Crash, "x... ....")));
-		chorus.Play(bass, Line.Eighths("1 - 1 - 1 1 5, 1").OverChords());
+		chorus.Play(low, Line.Eighths("1 - 1 - 1 1 5, 1").OverChords());
 		song.Order(verse, verse, chorus);
 		return song;
 	}
 }
 ```
+
+The game passes the song its instruments (here as arguments, so the sample stands alone; a game's songs name its own
+patches and kits directly) and sets the cue as it plays: `music.Set(Groove.Energy, 0.7f)`.
 
 ### Scales and chords
 
@@ -647,8 +654,8 @@ section.
   by itself when `DOTNET_WATCH_RESTART_ON_RUDE_EDIT` is `true`. The app comes back playing where it was, from its state
   file.
 - A song that fails to build after an edit shows its error in the banner, and the old one plays on. Fix it and save.
-- A change to a `.xaml` view reloads the view (SUIsei's own hot reload). The views build their rows in code rather than
-  with an `ItemsControl`, and each puts its rows back after a reload.
+- A change to a `.xaml` view reloads the view (SUIsei's own hot reload). The views are `ItemsControl`s bound to the view
+  models, so a reload builds their rows again from what the view models hold.
 
 After an edit, the song rebuilt is swapped in at the next bar (`MusicPlayer.Swap`), in the same section at the same bar.
 The mutes, solos, gains and forced placements carry over by name.
