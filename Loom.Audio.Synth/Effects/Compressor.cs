@@ -86,6 +86,10 @@ public sealed class Compressor : AudioEffect, IKeyedEffect
 	// One sample's level through the curve and the envelope, to the gain it gets
 	private float Follow(float level, in Curve curve)
 	{
+		// At rest and under the knee: the makeup gain, worked out once a block, without the log and the power the rest takes
+		if (_held == 0f && _reduction == 0f && level < curve.QuietBelow)
+			return curve.Quiet;
+
 		var x = 20f * MathF.Log10(MathF.Max(level, 1e-6f));
 		var over = x - curve.Threshold;
 		float y;
@@ -122,6 +126,11 @@ public sealed class Compressor : AudioEffect, IKeyedEffect
 	{
 		public readonly float Threshold, Slope, Knee, Attack, Release, Makeup;
 
+		// At rest (nothing held, nothing taken off) a level under the knee's lower edge gets exactly the makeup gain: the
+		// curve leaves it as it is, so what it wants taken off is 0 and the envelope stays at 0. The edge is taken a little
+		// low, in linear terms, so a level the full path would put on it never takes this one
+		public readonly float QuietBelow, Quiet;
+
 		public Curve(Compressor c)
 		{
 			var rate = c.SampleRate;
@@ -131,6 +140,10 @@ public sealed class Compressor : AudioEffect, IKeyedEffect
 			Attack = MathF.Exp(-1f / (MathF.Max(1e-5f, c.AttackSeconds.Snap()) * rate));
 			Release = MathF.Exp(-1f / (MathF.Max(1e-5f, c.ReleaseSeconds.Snap()) * rate));
 			Makeup = c.MakeupDb.Snap();
+			var edge = Threshold - Knee / 2f;
+			// The full path floors a level at 120 dB down, so an edge below that is never quiet
+			QuietBelow = edge > -119f ? 0.999f * MathF.Pow(10f, edge / 20f) : 0f;
+			Quiet = MathF.Pow(10f, (Makeup - 0f) / 20f);
 		}
 	}
 }
