@@ -331,6 +331,13 @@ internal sealed class ChipVoice
 			var spec = specs[i];
 			var output = scratch[i];
 			ref var op = ref _ops[i];
+			// An operator whose envelope has died is silence until the next note gates it: a 50 ms click on a long note costs
+			// nothing after its 50 ms
+			if (op.Env.IsIdle && spec.Kind is OperatorKind.Sine or OperatorKind.Wave or OperatorKind.Noise or OperatorKind.Level)
+			{
+				Array.Clear(output, 0, n);
+				continue;
+			}
 			var level = spec.Level * (1f - spec.Velocity + spec.Velocity * Velocity) * op.KeyGain;
 			foreach (var macro in patch.Macros)
 				if (macro.Target == MacroTarget.OperatorLevel && macro.Operator == i)
@@ -362,9 +369,14 @@ internal sealed class ChipVoice
 		var filterSpec = patch.Filter;
 		if (filterSpec is not null)
 		{
-			var env = _filterEnvelope.Level;
-			for (var s = 0; s < n; s++)
-				_filterEnvelope.Next();
+			// Stepped only where it moves the cutoff: a filter with no envelope of its own has nothing to step
+			var env = 0f;
+			if (filterSpec.EnvelopeOctaves != 0f)
+			{
+				env = _filterEnvelope.Level;
+				for (var s = 0; s < n; s++)
+					_filterEnvelope.Next();
+			}
 			var octaves = filterSpec.EnvelopeOctaves * env + filterSpec.KeyTrack * (note - 60f) / 12f + filterSpec.Velocity * 4f * (Velocity - 1f);
 			var cutoff = Math.Clamp(filterSpec.CutoffHz * MathF.Pow(2f, octaves) * cutoffScale, 20f, 0.45f * rate);
 			_filter.Set(cutoff, filterSpec.Q, rate);

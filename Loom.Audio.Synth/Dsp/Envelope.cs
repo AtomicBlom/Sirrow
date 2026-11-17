@@ -10,6 +10,9 @@ public struct Envelope
 {
 	private enum Stage : byte { Idle, Attack, Decay, Release }
 
+	// Where a release, or a decay with nothing to sustain, is taken as over: 80 dB down
+	private const float IdleLevel = 1e-4f;
+
 	private Stage _stage;
 	private float _level;
 	private float _attackStep, _decayFactor, _releaseFactor, _sustain;
@@ -48,10 +51,17 @@ public struct Envelope
 				break;
 			case Stage.Decay:
 				_level = _sustain + (_level - _sustain) * _decayFactor;
+				// With nothing to sustain, it is done once it has fallen as far as a release does: left alone it would sink into
+				// the denormal range, where a float is many times slower, and never reach zero
+				if (_sustain <= 0f && _level < IdleLevel)
+				{
+					_level = 0f;
+					_stage = Stage.Idle;
+				}
 				break;
 			case Stage.Release:
 				_level *= _releaseFactor;
-				if (_level < 1e-4f)
+				if (_level < IdleLevel)
 				{
 					_level = 0f;
 					_stage = Stage.Idle;
@@ -95,9 +105,17 @@ public struct Envelope
 						var level = _level;
 						var sustain = _sustain;
 						var factor = _decayFactor;
+						var ends = sustain <= 0f;
 						for (; i < n; i++)
 						{
 							level = sustain + (level - sustain) * factor;
+							if (ends && level < IdleLevel)
+							{
+								level = 0f;
+								_stage = Stage.Idle;
+								levels[i++] = 0f;
+								break;
+							}
 							levels[i] = level;
 						}
 						_level = level;
@@ -107,7 +125,7 @@ public struct Envelope
 					while (i < n)
 					{
 						_level *= _releaseFactor;
-						if (_level < 1e-4f)
+						if (_level < IdleLevel)
 						{
 							_level = 0f;
 							_stage = Stage.Idle;

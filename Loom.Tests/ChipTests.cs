@@ -49,6 +49,28 @@ public class ChipTests
 	}
 
 	[Test]
+	public void A_held_note_sounds_on_after_its_click_has_died()
+	{
+		// A held tone with a 50 ms struck click beside it: once the click's envelope has gone idle it is skipped, and the
+		// tone goes on at its own level, the click left nothing behind
+		using var rig = new ChipRig();
+		var clicked = rig.Chip.AddInstrument(Patch.Build("clicked", p =>
+		{
+			var modulator = p.Sine(3f, Env.Decay(0.05f));
+			p.Out(p.Sine(1f, Env.Gate).ModulatedBy(modulator, 1f), p.Noise(Env.Decay(0.05f), 0.5f));
+		}));
+		rig.Chip.NoteOn(clicked, 69, velocity: 1f);
+		rig.Seconds(2.1);
+
+		// The modulator at three times the note puts a sideband at 1760 Hz while it lives, and none after
+		AudioAnalysis.LevelAt(rig.Left(0.0, 0.02), 1760, ChipRig.Rate).ShouldBeGreaterThan(0.02f);
+		var late = rig.Left(1.0, 1.0);
+		AudioAnalysis.LevelAt(late, 440, ChipRig.Rate).ShouldBe(0.7071f, 0.02f);
+		AudioAnalysis.LevelAt(late, 1760, ChipRig.Rate).ShouldBeLessThan(1e-4f);
+		AudioAnalysis.Rms(late).ShouldBe(0.5f, 0.02f);
+	}
+
+	[Test]
 	public void A_note_let_go_dies_away_and_frees_its_voice()
 	{
 		using var rig = new ChipRig();

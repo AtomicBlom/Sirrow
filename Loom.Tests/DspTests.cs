@@ -395,4 +395,39 @@ public class DspTests
 		allocated.ShouldBe(0);
 		float.IsFinite(sum).ShouldBeTrue();
 	}
+
+	[Test]
+	public void A_struck_envelope_falls_to_zero_and_goes_idle()
+	{
+		// Dying 60 dB over 0.1 s, it passes 80 dB down at a third past that: by twice its time it is exactly zero and idle,
+		// sample by sample and a block at a time alike
+		var one = new Envelope();
+		one.Prepare(EnvelopeShape.Struck(0.1f), Rate);
+		one.Gate(true);
+		for (var i = 0; i < Rate / 5; i++)
+			one.Next();
+		one.IsIdle.ShouldBeTrue();
+		one.Level.ShouldBe(0f);
+
+		var block = new Envelope();
+		block.Prepare(EnvelopeShape.Struck(0.1f), Rate);
+		block.Gate(true);
+		var levels = new float[256];
+		for (var i = 0; i < Rate / 5 / 256; i++)
+			block.Fill(levels);
+		block.IsIdle.ShouldBeTrue();
+		levels.ShouldAllBe(l => l == 0f);
+	}
+
+	[Test]
+	public void An_envelope_that_sustains_never_goes_idle_while_held()
+	{
+		var envelope = new Envelope();
+		envelope.Prepare(EnvelopeShape.Adsr(0.01f, 0.05f, 0.001f, 0.2f), Rate);
+		envelope.Gate(true);
+		for (var i = 0; i < Rate; i++)
+			envelope.Next();
+		envelope.IsIdle.ShouldBeFalse();
+		envelope.Level.ShouldBe(0.001f, 1e-6f);
+	}
 }
