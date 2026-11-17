@@ -74,25 +74,58 @@ public sealed class Distortion : AudioEffect
 		DriveDb.Begin();
 		OutputDb.Begin();
 		Mix.Begin();
-		// The eased values are shared by both sides, so they are stepped once here for the block
-		for (var s = 0; s < n; s++)
-		{
-			_drive[s] = Units.DbToGain(DriveDb.Next());
-			_output[s] = Units.DbToGain(OutputDb.Next());
-			_mix[s] = Mix.Next();
-		}
+		// The eased values are shared by both sides, so they are stepped once here for the block; one that has arrived is
+		// the same every sample, and its decibels are turned to a gain once
+		Gains(DriveDb, _drive, n);
+		Gains(OutputDb, _output, n);
+		if (Mix.IsSettled)
+			_mix.AsSpan(0, n).Fill(Mix.Skip(n));
+		else
+			for (var s = 0; s < n; s++)
+				_mix[s] = Mix.Next();
 		var tone = ToneHz.Snap();
 		_left.Run(left, this, tone);
 		_right.Run(right, this, tone);
 	}
 
-	private float Shape(float x) => _curve switch
+	// A parameter in decibels as the gain of each of the block's samples
+	private static void Gains(SmoothedParameter db, float[] into, int n)
 	{
-		DistortionCurve.Soft => MathF.Tanh(x),
-		DistortionCurve.Hard => x <= -1f ? -1f : x >= 1f ? 1f : 1.5f * x - 0.5f * x * x * x,
-		DistortionCurve.Asymmetric => MathF.Tanh(x + 0.2f) - 0.19737533f, // tanh(0.2), so silence stays silent
-		_ => Fold(x),
-	};
+		if (db.IsSettled)
+		{
+			into.AsSpan(0, n).Fill(Units.DbToGain(db.Skip(n)));
+			return;
+		}
+		for (var s = 0; s < n; s++)
+			into[s] = Units.DbToGain(db.Next());
+	}
+
+	// The curve over a block of samples, chosen once for the block rather than once a sample
+	private void Shape(Span<float> samples)
+	{
+		switch (_curve)
+		{
+			case DistortionCurve.Soft:
+				for (var i = 0; i < samples.Length; i++)
+					samples[i] = MathF.Tanh(samples[i]);
+				break;
+			case DistortionCurve.Hard:
+				for (var i = 0; i < samples.Length; i++)
+				{
+					var x = samples[i];
+					samples[i] = x <= -1f ? -1f : x >= 1f ? 1f : 1.5f * x - 0.5f * x * x * x;
+				}
+				break;
+			case DistortionCurve.Asymmetric:
+				for (var i = 0; i < samples.Length; i++)
+					samples[i] = MathF.Tanh(samples[i] + 0.2f) - 0.19737533f; // tanh(0.2), so silence stays silent
+				break;
+			default:
+				for (var i = 0; i < samples.Length; i++)
+					samples[i] = Fold(samples[i]);
+				break;
+		}
+	}
 
 	private static float Fold(float x)
 	{
@@ -173,15 +206,11 @@ public sealed class Distortion : AudioEffect
 			{
 				var raised = _raised.AsSpan(0, n * oversampler.Factor);
 				oversampler.Up(wet, raised);
-				for (var i = 0; i < raised.Length; i++)
-					raised[i] = owner.Shape(raised[i]);
+				owner.Shape(raised);
 				oversampler.Down(raised, wet);
 			}
 			else
-			{
-				for (var s = 0; s < n; s++)
-					wet[s] = owner.Shape(wet[s]);
-			}
+				owner.Shape(wet);
 
 			_tone.Set(toneHz, _rate);
 			for (var s = 0; s < n; s++)

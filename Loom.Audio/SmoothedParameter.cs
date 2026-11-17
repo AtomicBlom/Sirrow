@@ -45,6 +45,12 @@ public sealed class SmoothedParameter(float initial, float seconds = 0.03f)
 	public float Seconds => seconds;
 
 	/// <summary>
+	/// Audio thread, after <see cref="Begin"/>: whether it has arrived, every <see cref="Next"/> this block giving the target
+	/// exactly. A source can then work out what it derives from the value once for the block rather than once a sample.
+	/// </summary>
+	public bool IsSettled => _error == 0f;
+
+	/// <summary>
 	/// Game thread, from the source's <c>OnStart</c>: works out the per-sample step for <paramref name="sampleRate"/>.
 	/// Until it is called the parameter steps straight to its target.
 	/// </summary>

@@ -6,11 +6,14 @@ namespace Loom.Audio.Synth.Effects;
 /// </summary>
 public static class Fx
 {
-	/// <summary>A <see cref="Effects.Distortion"/>.</summary>
+	/// <summary>
+	/// A <see cref="Effects.Distortion"/>, oversampled <paramref name="oversampling"/> times (1, 2 or 4): 4 is the cleanest
+	/// and costs the most, about five times 1's.
+	/// </summary>
 	public static Func<AudioEffect> Distortion(float driveDb = 12f, float toneHz = 4000f, DistortionCurve curve = DistortionCurve.Soft,
-		Cabinet cabinet = Cabinet.None, float outputDb = -6f) => () =>
+		Cabinet cabinet = Cabinet.None, float outputDb = -6f, int oversampling = 4) => () =>
 	{
-		var effect = new Distortion(curve, cabinet);
+		var effect = new Distortion(curve, cabinet, oversampling);
 		effect.DriveDb.Value = driveDb;
 		effect.ToneHz.Value = toneHz;
 		effect.OutputDb.Value = outputDb;

@@ -278,7 +278,8 @@ cubic into a hard clip), `Asymmetric` (tanh off centre, even harmonics) or `Fold
 `None`, `OneByTwelve` or `FourByTwelve`; oversampling is 1, 2 or 4. The dry sound is delayed by the oversampler's own
 `DryDelayFrames` so a mix lines up exactly. **Cost:** a stereo distortion at 4× with a cabinet is the dearest
 effect, about 1% of a core; like every effect it rests while silence goes in and comes out (`docs/audio.md`, "Effects
-and sends"), so on a song's group it costs that only while its tracks play.
+and sends"), so on a song's group it costs that only while its tracks play. Nearly all of that is the 4× oversampler's
+filters: at 1× (`oversampling: 1`, or `Fx.Distortion(…, oversampling: 1)`) it costs a fifth as much, and aliases.
 
 | Control | Default | Meaning |
 |---|---|---|
