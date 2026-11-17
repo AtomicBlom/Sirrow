@@ -671,6 +671,17 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
   while it holds (`Condition.IsMet`), and auto, on and off to force it. The part chosen is drawn below, as notes over
   the bar. Beside it **the cues**: a slider for a `Cue` with the levels parts wait on marked over it and what waits on
   each, a button per value for a `Cue<T>`; one the song doesn't read is dimmed.
+- **The roll.** When the song has a file (section 11) and the part chosen is data there, it is edited below in place of
+  its drawing. A line on rows by degree: a click adds a note, a drag from a note's last step lengthens it, a drag
+  elsewhere (or off its row) moves it, a right-click or a second click deletes it; Flat, Natural, Sharp, Accent and Slide
+  change the note chosen, Delete takes it out. A beat's rows: a click cycles a step through `x`, `X`, `o` and off. A
+  strum: `D`, `U`, `d`, `u`, `x`, `_`. **+ bar** and **− bar** add and take off a whole bar, so no edit can break a part's
+  notation (`NotationText` keeps the text's own spacing and changes a step's token; `RollEdits` are the edits). An edit
+  builds the song again from the file as edited (`SongFile.Load`, no compile) and is heard at the next bar; the file is
+  written 0.4 s after the edits pause (`SongEditor`), which the next compile takes up. Undo and Redo (Ctrl Z, Ctrl Y)
+  cover the session, a drag one edit; **Revert part** puts the part back as the file had it when opened. A file changed
+  by something else is read again, and the undo history cleared. A part that is code, or a hook's, says so.
+  The patch designer writes its edits to the patch's `.patch.json` the same way, keeping the file's operator names.
 - **Patch**, the patch designer. The patch chosen as data (`PatchSpec`): its operators drawn as a graph in render order
   (an operator a column right of the deepest it reads; modulation amber with its index, driving teal and dashed, the
   heard to Out), the voice after them as a chain, and a scope and spectrum of what the bus plays (an `AudioTap` on it).
@@ -883,8 +894,8 @@ the files and every render stayed bit-identical.
   costs several milliseconds of each frame; rendering it ahead on a worker (`AudioOptions.BrowserThread`) has hung the
   page. The chip, effects and offline rendering work there; a browser game should budget for music or leave it out.
 - **No tempo change within a song,** and no meter change: a song has one of each. A swap may bring another.
-- **The workbench is not a package.** An app references its project, and its pattern view shows a part's notes but
-  doesn't edit them: the song is edited in code.
+- **The workbench is not a package.** An app references its project. The roll edits a part only where its song has a
+  file; a song that is code alone is edited in code.
 - **No vectorised inner loops.** The oversampler's half-band filter and the voices' operators are scalar; making them
   wide changes the order of their sums, and so the bits a render gives.
 - **Measured on one machine.** The costs quoted here are a Snapdragon X laptop's. A denormal costs little on ARM and a
