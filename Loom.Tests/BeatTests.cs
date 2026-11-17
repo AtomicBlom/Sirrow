@@ -16,6 +16,15 @@ public class BeatTests
 	}
 
 	[Test]
+	public void A_digit_is_a_hit_at_that_many_tenths()
+	{
+		var hits = ((Beat.Parsed)Beat.Eighths((Kit.Snare, "1.3. 5.9.")).Parse(Meter.FourFour)).Hits;
+
+		hits.Select(h => h.Velocity).ShouldBe([0.1f, 0.3f, 0.5f, 0.9f]);
+		Should.Throw<NotationException>(() => Beat.Eighths((Kit.Snare, "0... ....")).Parse(Meter.FourFour));
+	}
+
+	[Test]
 	public void Rows_of_different_lengths_or_part_bars_are_refused()
 	{
 		Should.Throw<NotationException>(() => Beat.Eighths((Kit.Kick, "x... x..."), (Kit.Snare, "..x. ..x. ..x. ..x.")).Parse(Meter.FourFour));

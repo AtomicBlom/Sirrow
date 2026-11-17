@@ -9,8 +9,9 @@ namespace Loom.Audio.Synth.Chip;
 /// <remarks>
 /// The rules, checked when the action returns: at most 16 operators; at least one heard (<see cref="Out"/>); an operator
 /// is modulated or driven only by one made before it, in this builder; only a <see cref="OperatorKind.Sine"/> takes
-/// modulators or feedback, and only a <see cref="OperatorKind.String"/> or <see cref="OperatorKind.Tube"/> drivers; at
-/// most two strings and one tube, and a tube has a driver; a sample has samples.
+/// modulators or feedback, and only a <see cref="OperatorKind.String"/>, a <see cref="OperatorKind.Tube"/> or
+/// <see cref="OperatorKind.Modes"/> drivers; at most two strings and one tube; a tube and modes have a driver, and
+/// modes number one to <see cref="Mode.Max"/>; a sample has samples.
 /// </remarks>
 public sealed class PatchBuilder
 {
@@ -49,13 +50,28 @@ public sealed class PatchBuilder
 	public Op Sample(SampleSet samples, float level = 1f, float velocity = 1f, bool oneShot = false) =>
 		Add(new OperatorSpec { Kind = OperatorKind.Sample, Samples = samples, Level = level, Velocity = velocity, OneShot = oneShot });
 
-	/// <summary>A plucked string: rings for <paramref name="decaySeconds"/>, bright at <paramref name="damping"/> 0 and dull at 1.</summary>
-	public Op String(float ratio = 1f, float decaySeconds = 2f, float damping = 0.5f) =>
-		Add(new OperatorSpec { Kind = OperatorKind.String, Ratio = ratio, DecaySeconds = decaySeconds, Damping = damping });
+	/// <summary>
+	/// A plucked string: rings for <paramref name="decaySeconds"/>, bright at <paramref name="damping"/> 0 and dull at 1,
+	/// plucked <paramref name="pick"/> of the way along it from the bridge (0.02 to 0.5): near the bridge is thin and
+	/// bright, the middle round and hollow, a fifth of the way a guitar's usual place.
+	/// </summary>
+	public Op String(float ratio = 1f, float decaySeconds = 2f, float damping = 0.5f, float pick = 0.2f) =>
+		Add(new OperatorSpec { Kind = OperatorKind.String, Ratio = ratio, DecaySeconds = decaySeconds, Damping = damping, Pick = pick });
 
 	/// <summary>A flute's bore, blown by its drivers: a <see cref="Level"/> for the breath and a quiet <see cref="Noise"/>.</summary>
 	public Op Tube(float ratio = 1f) =>
 		Add(new OperatorSpec { Kind = OperatorKind.Tube, Ratio = ratio });
+
+	/// <summary>
+	/// A struck or rung body: its drivers ring a bank of <paramref name="modes"/>, each at its own frequency for its own
+	/// time. Drive it with a short burst of noise for a mallet on a bar or a stick on a skin, or with a string for the
+	/// body of the instrument it is strung on.
+	/// </summary>
+	public Op Modes(params Mode[] modes)
+	{
+		ArgumentNullException.ThrowIfNull(modes);
+		return Add(new OperatorSpec { Kind = OperatorKind.Modes, Modes = [.. modes] });
+	}
 
 	/// <summary>Hears these operators in the output: an <see cref="Op"/> at level 1, or <see cref="Op.At"/> a level.</summary>
 	public void Out(params OpTap[] taps)
@@ -76,16 +92,27 @@ public sealed class PatchBuilder
 	/// <summary>Where it sits, -1 left to 1 right.</summary>
 	public void Pan(float pan) => _settings = _settings with { Pan = pan };
 
-	/// <summary>Sends <paramref name="level"/> of the voice to one of the chip's shared effects.</summary>
-	public void Send(ChipSend send, float level) => _settings = send == ChipSend.Space
-		? _settings with { SendSpace = level }
-		: _settings with { SendEcho = level };
+	/// <summary>Sends <paramref name="level"/> of the voice to one of the chip's shared buses: the room, the echo, or the key keyed effects listen to.</summary>
+	public void Send(ChipSend send, float level) => _settings = send switch
+	{
+		ChipSend.Space => _settings with { SendSpace = level },
+		ChipSend.Echo => _settings with { SendEcho = level },
+		ChipSend.Key => _settings with { SendKey = level },
+		_ => throw new ArgumentOutOfRangeException(nameof(send), send, "A chip sends to its space, its echo or its key."),
+	};
 
 	/// <summary>A vibrato of <paramref name="depth"/> semitones at <paramref name="rate"/> hertz, starting <paramref name="delay"/> seconds into a note.</summary>
 	public void Vibrato(float rate, float depth, float delay = 0f) =>
 		_settings = _settings with { VibratoHz = rate, VibratoSemitones = depth, VibratoDelaySeconds = delay };
 
-	/// <summary>Each note starts <paramref name="semitones"/> up and falls to pitch, 60 dB of the way in <paramref name="seconds"/>.</summary>
+	/// <summary>A tremolo: the voice's level dips by up to <paramref name="depth"/> (0 to 1) of itself, <paramref name="rate"/> times a second.</summary>
+	public void Tremolo(float rate, float depth) =>
+		_settings = _settings with { TremoloHz = rate, TremoloDepth = depth };
+
+	/// <summary>
+	/// Each note starts <paramref name="semitones"/> up and falls to pitch, 60 dB of the way in <paramref name="seconds"/>:
+	/// a drum's thump. It bends every operator, those at a <see cref="Op.Fixed"/> frequency and samples too.
+	/// </summary>
 	public void PitchDrop(float semitones, float seconds) =>
 		_settings = _settings with { PitchDropSemitones = semitones, PitchDropSeconds = seconds };
 
@@ -108,6 +135,9 @@ public sealed class PatchBuilder
 			Fail($"it has {_operators.Count} operators, and a patch has at most {Patch.MaxOperators}.");
 		if (_outputs.Count == 0)
 			Fail("nothing is heard: give Out the operators to hear.");
+		if (_outputs.Count > Patch.MaxOutputs)
+			Fail($"{_outputs.Count} operators are heard, and a patch hears at most {Patch.MaxOutputs}.");
+		var wide = false;
 
 		var strings = 0;
 		var tubes = 0;
@@ -119,8 +149,15 @@ public sealed class PatchBuilder
 				Fail($"operator {op.Index} is a {spec.Kind}, and only a Sine is modulated.");
 			if (spec.Feedback != 0f && spec.Kind != OperatorKind.Sine)
 				Fail($"operator {op.Index} is a {spec.Kind}, and only a Sine has feedback.");
-			if (op.Drivers.Count > 0 && spec.Kind is not (OperatorKind.String or OperatorKind.Tube))
-				Fail($"operator {op.Index} is a {spec.Kind}, and only a String or a Tube is driven.");
+			if (op.Drivers.Count > 0 && spec.Kind is not (OperatorKind.String or OperatorKind.Tube or OperatorKind.Modes))
+				Fail($"operator {op.Index} is a {spec.Kind}, and only a String, a Tube or Modes are driven.");
+			if (spec.Kind == OperatorKind.Modes)
+			{
+				if (op.Drivers.Count == 0)
+					Fail($"operator {op.Index} is Modes with nothing ringing them: drive them with a short Noise, or a String.");
+				if (spec.Modes.Length is 0 or > Mode.Max)
+					Fail($"operator {op.Index} has {spec.Modes.Length} modes, and Modes have 1 to {Mode.Max}.");
+			}
 			if (spec.Kind == OperatorKind.String)
 				strings++;
 			if (spec.Kind == OperatorKind.Tube)
@@ -147,7 +184,12 @@ public sealed class PatchBuilder
 
 		var outputs = new OutputTap[_outputs.Count];
 		for (var i = 0; i < outputs.Length; i++)
-			outputs[i] = new OutputTap(Mine(_outputs[i].Op, "heard"), _outputs[i].Level);
+		{
+			if (!float.IsFinite(_outputs[i].Pan) || _outputs[i].Pan < -1f || _outputs[i].Pan > 1f)
+				Fail($"an operator is heard at a pan of {_outputs[i].Pan}, and a pan runs from -1 (left) to 1 (right).");
+			outputs[i] = new OutputTap(Mine(_outputs[i].Op, "heard"), _outputs[i].Level, _outputs[i].Pan);
+			wide |= _outputs[i].Pan != 0f;
+		}
 
 		var macros = new MacroSpec[_macros.Count];
 		for (var i = 0; i < macros.Length; i++)
@@ -160,7 +202,7 @@ public sealed class PatchBuilder
 			macros[i] = new MacroSpec(macro, target, from, to, op is null ? -1 : Mine(op, "turned by a macro"));
 		}
 
-		return _settings with { Operators = operators, Outputs = outputs, Macros = macros };
+		return _settings with { Operators = operators, Outputs = outputs, Macros = macros, Wide = wide };
 	}
 
 	// The index of an operator feeding another: one of this builder's, made before it

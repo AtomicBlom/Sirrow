@@ -17,6 +17,13 @@ public sealed record OperatorSpec
 	/// <summary>Cents off its ratio's pitch: a few thicken it against another operator.</summary>
 	public float DetuneCents { get; init; }
 
+	/// <summary>
+	/// Where in its cycle a <see cref="OperatorKind.Sine"/> or <see cref="OperatorKind.Wave"/> starts each note, 0 to 1.
+	/// Several of the same wave a few cents apart all starting at 0 start as one loud wave, which is a click; started at
+	/// different points they are apart from the first sample.
+	/// </summary>
+	public float StartPhase { get; init; }
+
 	/// <summary>Its level, a linear gain.</summary>
 	public float Level { get; init; } = 1f;
 
@@ -55,4 +62,23 @@ public sealed record OperatorSpec
 
 	/// <summary>A <see cref="OperatorKind.String"/>'s tone, 0 bright to 1 dull.</summary>
 	public float Damping { get; init; } = 0.5f;
+
+	/// <summary>
+	/// Where along a <see cref="OperatorKind.String"/> it is plucked, as a share of its length from the bridge, 0.02 to 0.5:
+	/// near the bridge is thin and bright, the middle round and hollow. The harmonics with a still point there are missing.
+	/// </summary>
+	public float Pick { get; init; } = 0.2f;
+
+	/// <summary>A <see cref="OperatorKind.Modes"/> operator's modes, at most <see cref="Mode.Max"/>.</summary>
+	public Mode[] Modes { get; init; } = [];
+
+	/// <summary>How its level follows the keyboard, in decibels an octave above middle C (below it, the other way): negative keeps high notes from growing harsh.</summary>
+	public float KeyLevelDb { get; init; }
+
+	/// <summary>
+	/// How its envelope's decay and release, a string's ring and its modes' follow the keyboard: the share by which each
+	/// octave above middle C shortens them (and each below lengthens them), as a struck or plucked note rings shorter the
+	/// higher it is. 0 leaves them alone; 0.5 is typical.
+	/// </summary>
+	public float KeyDecay { get; init; }
 }

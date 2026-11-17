@@ -17,4 +17,10 @@ public enum MacroTarget
 	VibratoDepth,
 	/// <summary>Multiplies one operator's level (<see cref="MacroSpec.Operator"/>).</summary>
 	OperatorLevel,
+	/// <summary>
+	/// Moves the filter's cutoff by octaves: from <see cref="MacroSpec.From"/> octaves at the macro's 0 to
+	/// <see cref="MacroSpec.To"/> at its 1. A sweep by this is even to the ear all the way; one by
+	/// <see cref="FilterCutoff"/>, which moves the cutoff in hertz, does most of what it does in its first few steps.
+	/// </summary>
+	FilterOctaves,
 }

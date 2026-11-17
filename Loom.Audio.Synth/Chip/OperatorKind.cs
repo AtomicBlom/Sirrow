@@ -17,4 +17,6 @@ public enum OperatorKind
 	String,
 	/// <summary>A flute: a jet driving a bore, blown by its drivers.</summary>
 	Tube,
+	/// <summary>A struck or rung body: a bank of resonances (<see cref="Mode"/>) rung by its drivers.</summary>
+	Modes,
 }

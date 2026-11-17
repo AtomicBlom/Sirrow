@@ -31,7 +31,7 @@ public sealed class Op
 		return this;
 	}
 
-	/// <summary>Excited by <paramref name="drivers"/>, each made before this one: a <see cref="OperatorKind.String"/> or <see cref="OperatorKind.Tube"/> only.</summary>
+	/// <summary>Excited by <paramref name="drivers"/>, each made before this one: a <see cref="OperatorKind.String"/>, a <see cref="OperatorKind.Tube"/> or <see cref="OperatorKind.Modes"/> only.</summary>
 	public Op DrivenBy(params Op[] drivers)
 	{
 		ArgumentNullException.ThrowIfNull(drivers);
@@ -46,13 +46,44 @@ public sealed class Op
 		return this;
 	}
 
-	/// <summary>At <paramref name="hz"/> whatever the note.</summary>
+	/// <summary>
+	/// Starting each note <paramref name="cycles"/> of the way through its cycle (0 to 1): a sine or a wave. Give several
+	/// detuned waves different starts and they are apart from the first sample, where all from 0 they start as one.
+	/// </summary>
+	public Op Phase(float cycles)
+	{
+		Spec = Spec with { StartPhase = cycles - MathF.Floor(cycles) };
+		return this;
+	}
+
+	/// <summary>At <paramref name="hz"/> whatever the note, though the patch's pitch drop still bends it.</summary>
 	public Op Fixed(float hz)
 	{
 		Spec = Spec with { FixedHz = hz };
 		return this;
 	}
 
-	/// <summary>This operator heard at <paramref name="level"/>, for <see cref="PatchBuilder.Out"/>.</summary>
-	public OpTap At(float level) => new(this, level);
+	/// <summary>Louder or quieter by <paramref name="dbPerOctave"/> for each octave above middle C, and the other way below it: negative keeps high notes from growing harsh.</summary>
+	public Op KeyLevel(float dbPerOctave)
+	{
+		Spec = Spec with { KeyLevelDb = dbPerOctave };
+		return this;
+	}
+
+	/// <summary>
+	/// Ringing shorter the higher the note, as struck and plucked things do: each octave above middle C shortens its decay
+	/// and release (a string's ring, a body's modes) by <paramref name="share"/> of themselves, and each below lengthens them.
+	/// </summary>
+	public Op KeyDecay(float share = 0.5f)
+	{
+		Spec = Spec with { KeyDecay = share };
+		return this;
+	}
+
+	/// <summary>
+	/// This operator heard at <paramref name="level"/> and at <paramref name="pan"/> (-1 left to 1 right), for
+	/// <see cref="PatchBuilder.Out"/>. Operators heard at different places make a patch wide: two saws a few cents apart,
+	/// one each side, are a section and not a single player.
+	/// </summary>
+	public OpTap At(float level, float pan = 0f) => new(this, level, pan);
 }

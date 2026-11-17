@@ -2,6 +2,7 @@ using Loom.Audio;
 using Loom.Audio.Synth;
 using Loom.Audio.Synth.Chip;
 using Loom.Audio.Synth.Dsp;
+using Loom.Audio.Synth.Effects;
 
 namespace Loom.Tests;
 
@@ -154,6 +155,50 @@ public class ChipTests
 
 		TailRms(1f).ShouldBeGreaterThan(1e-4f);
 		TailRms(0f).ShouldBeLessThan(1e-5f);
+	}
+
+	[Test]
+	public void A_duck_turns_its_group_down_while_the_key_sounds_and_leaves_the_rest()
+	{
+		// The bass at 110 Hz on a ducked group; the kick at 2 kHz on the plain group, sending to the key
+		(float Bass, float Kick) Levels(bool kick)
+		{
+			using var rig = new ChipRig(new ChipOptions { Groups = [new("plain"), new("bass", Fx.Duck(thresholdDb: -30f, ratio: 8f))] });
+			var bass = rig.Chip.AddInstrument(Patch.Build("bass", p => p.Out(p.Sine(1f, Env.Gate, 0.5f))), group: 1);
+			var key = rig.Chip.AddInstrument(Patch.Build("kick", p =>
+			{
+				p.Out(p.Sine(1f, Env.Gate, 0.5f));
+				p.Send(ChipSend.Key, 1f);
+			}));
+			rig.Chip.NoteOn(bass, 45, 1f);
+			if (kick)
+				rig.Chip.NoteOn(key, 95, 1f);
+			rig.Seconds(1.1);
+			var heard = rig.Left(0.5, 0.5);
+			return (AudioAnalysis.LevelAt(heard, 110, ChipRig.Rate), AudioAnalysis.LevelAt(heard, 1975.5, ChipRig.Rate));
+		}
+
+		var alone = Levels(kick: false);
+		var ducked = Levels(kick: true);
+		// The key, about -9 dB at the voice's centre pan, is over 20 dB above -30: an 8:1 ratio takes most of that off the bass
+		AudioAnalysis.ToDb(ducked.Bass / alone.Bass).ShouldBeLessThan(-15f);
+		ducked.Kick.ShouldBeGreaterThan(alone.Bass * 0.5f);
+	}
+
+	[Test]
+	public void A_pitch_drop_bends_a_fixed_operator_too()
+	{
+		using var rig = new ChipRig();
+		var kick = rig.Chip.AddInstrument(Patch.Build("kick", p =>
+		{
+			p.Out(p.Sine(1f, Env.Gate).Fixed(100f));
+			p.PitchDrop(12f, 2f);
+		}));
+		rig.Chip.NoteOn(kick, 60, 1f);
+		rig.Seconds(4.1);
+		// An octave up as it starts, falling to 100 Hz
+		rig.Pitch(0.0, 0.05, 50, 400).ShouldBeGreaterThan(170);
+		rig.Pitch(3.5, 0.5, 50, 400).ShouldBe(100, 3);
 	}
 
 	[Test]

@@ -161,11 +161,26 @@ A room: eight delay lines feeding back through a mixing matrix, behind four all-
 losing highs as it goes round. Mono in, stereo out. `new Reverb(size)` scales the room's lines, 0.5 to 2. Its
 defaults (all wet, no dry) suit a bus fed only by sends.
 
+**Four of the lines sway.** Their lengths move by up to ten samples either way, each at its own rate under once a
+second: about two cents, too little and too slow to hear as a wobble. A network held still rings a held note's tail on
+at one or two frequencies of its own near the note; swaying, the tail spreads over the frequencies round it. Measured
+on a second of one note into a six-second room, the strongest line in the tail stood 20 to 30 times over the average
+near it held still, and 6 to 15 times at full sway (at 440 Hz, 1 kHz and 2.5 kHz; the measure wanders from note to
+note). `Modulation` at 0 holds it still, which also makes the tail the same every time.
+
+**The mix is a Hadamard's:** each time round, every line is fed from all eight in equal measure. That is what lets
+four swaying lines move the whole tail. Fed mostly from itself (a Householder mix), a still line keeps its own
+frequencies whatever the others do, and the same sway did little. The mix alone changed nothing measured: how even a
+click's tail is from the start, how much it repeats itself a line's length later, and its level under steady noise
+were the same either way, since the all-passes on the way in have already spread a click out before the lines come
+round.
+
 | Control | Default | Meaning |
 |---|---|---|
 | `DecaySeconds` | 1.8, eased over 0.1 s | How long the tail takes to fall 60 dB, 0.1 to 20 |
 | `DampingHz` | 6000 | Where the tail loses its highs: lower is a softer room |
 | `PreDelaySeconds` | 0.015 | The gap before the room answers, 0 to 0.25 |
+| `Modulation` | 1 | How far four of the lines sway in length, 0 (still) to 1 |
 | `Wet` | 1, eased | The reverb's share |
 | `Dry` | 0, eased | The input's share |
 
@@ -208,6 +223,26 @@ is, once a block, from any thread.
 | `ReleaseSeconds` | 0.15 | How fast it lets go |
 | `MakeupDb` | 0 | Gain after it |
 
+`Fx.Compressor(thresholdDb, ratio, attackSeconds, releaseSeconds, makeupDb, kneeDb)` makes one for a group's list. On a
+group of drums, an attack of a few milliseconds lets each hit's front through before it comes down, which is punch, and
+a release shorter than the gap between hits lets go before the next.
+
+**Keyed** (`new Compressor(keyed: true)`), it listens to the chip's key instead of to what it turns down: a sidechain.
+Patches send to the key with `p.Send(ChipSend.Key, level)` (§8), which nobody hears; the chip hands the key to every
+keyed effect (`IKeyedEffect`) on its groups, sends and master before each block, even while the effect rests, so its
+envelope never goes stale. `Fx.Duck(thresholdDb, ratio, attackSeconds, releaseSeconds)` makes one that ducks: on the
+bass's group, with the kick sending to the key, the bass drops under each kick and comes back over the release, which is
+drum and bass's pump. The key is taken after its voices' gain and pan, so the threshold is set against the key as loud
+as it plays. A keyed compressor anywhere no chip hands it a key (on an engine's bus) throws from `Process` rather than
+quietly doing nothing.
+
+```csharp
+var bass = song.Group("bass", Fx.Duck(thresholdDb: -30f, ratio: 8f, releaseSeconds: 0.1f));
+var drums = song.Group("drums", Fx.Compressor(thresholdDb: -24f, ratio: 4f, attackSeconds: 0.008f, releaseSeconds: 0.07f, makeupDb: 10f));
+song.Track("kit", kit, drums);            // its kick's patch does p.Send(ChipSend.Key, 1f)
+song.Track("sub", subPatch, bass);
+```
+
 ### `Limiter`
 
 Keeps the output under a ceiling, for the end of a mix: it looks `LatencyFrames` (64) ahead, delaying the sound by as
@@ -237,7 +272,8 @@ cabinet's response. `new Distortion(curve, cabinet, oversampling)`: `DistortionC
 cubic into a hard clip), `Asymmetric` (tanh off centre, even harmonics) or `Fold` (folds back past ±1); `Cabinet` is
 `None`, `OneByTwelve` or `FourByTwelve`; oversampling is 1, 2 or 4. The dry sound is delayed by the oversampler's own
 `DryDelayFrames` so a mix lines up exactly. **Cost:** a stereo distortion at 4× with a cabinet is the dearest
-effect; on a song's group it runs every block whether its tracks play or not.
+effect, about 1% of a core; like every effect it rests while silence goes in and comes out (`docs/audio.md`, "Effects
+and sends"), so on a song's group it costs that only while its tracks play.
 
 | Control | Default | Meaning |
 |---|---|---|
@@ -263,7 +299,18 @@ var bell = Patch.Build("bell", p =>
 ```
 
 Each operator method returns an `Op` to route: `ModulatedBy(op, index)`, `Feedback(radians)`, `DrivenBy(ops…)`,
-`Detune(cents)`, `Fixed(hz)`, and `At(level)` for `Out`. `Env.Adsr(a, d, s, r)`, `Env.Decay(seconds)` (struck: dying
+`Detune(cents)`, `Fixed(hz)`, `Phase(cycles)` (where in its cycle a sine or a wave starts each note: several detuned
+saws all starting at 0 start as one loud wave, a click, where each given its own start is apart from the first sample),
+`KeyLevel(dbPerOctave)` and `KeyDecay(share)` (how it follows the keyboard, from middle C: quieter going up, and
+ringing shorter, as struck and plucked things do), and `At(level, pan)` for `Out`.
+
+**Operators heard apart make a patch wide.** `Out` takes each operator at a level and a pan (-1 left to 1 right, the
+middle by default): two saws a few cents apart with one each side are a section, where both in the middle are one
+player. A patch with any operator off the middle is two channels from its operators on, each through the filter and the
+drive, and the voice's own pan (the patch's and the note's) leans the pair as a balance. One with none stays a single
+channel placed by its pan, and costs what it did. An operator in the middle is as loud in either.
+
+`Env.Adsr(a, d, s, r)`, `Env.Decay(seconds)` (struck: dying
 60 dB over its time whether held or not) and `Env.Gate` are the envelopes; `Filter.LowPass`, `BandPass` and `HighPass`
 the filters, with key tracking, velocity and an envelope of their own.
 
@@ -274,18 +321,40 @@ the filters, with key tracking, velocity and an envelope of their own.
 | `Noise(envelope, …, pink)` | White or pink noise |
 | `Level(envelope, …)` | Its envelope as a level: a breath's pressure |
 | `Sample(samples, …, oneShot)` | A recording from a `SampleSet`, pitched from its zone's root; one-shot plays to its end |
-| `String(ratio, decaySeconds, damping)` | A plucked string: a burst of noise (or its drivers) round a tuned delay line, ringing for `decaySeconds` |
+| `String(ratio, decaySeconds, damping, pick)` | A plucked string: a pluck (or its drivers) round a tuned delay line, ringing for `decaySeconds` |
 | `Tube(ratio)` | A flute (the Synthesis Toolkit's): a jet driving a bore, blown by its drivers, a `Level` and a quiet `Noise` |
+| `Modes(modes…)` | A struck or rung body: its drivers ring up to eight `Mode`s, each at a ratio of the note (`Mode.At`) or a fixed frequency (`Mode.Fixed`) for its own time |
 
 After the operators, in order: the heard operators mixed, the filter, drive (a soft clip, 0 to 1), the gain (times the
-velocity squared), pan, and the two sends. A patch also sets vibrato (after a delay), a pitch drop at each note's
-start, mono with glide, and macros: eight per instrument, each moving a target (the cutoff, drive, gain, a send, the
-vibrato's depth, an operator's level) from one value to another as the game turns it from 0 to 1.
+velocity squared), pan, and the sends. A patch also sets vibrato (after a delay), a tremolo, a pitch drop at each
+note's start (which bends every operator, a `Fixed` one too, so a kick's sine at 55 Hz falls to it), mono with glide,
+and macros: eight per instrument, each moving a target (the cutoff, drive, gain, a send,
+the vibrato's depth, an operator's level) from one value to another as the game turns it from 0 to 1. The pitch, the
+filter's cutoff and the levels are worked out every 64 frames (1.3 ms), so a drum's falling pitch and a filter's sweep
+move rather than step.
+
+**A filter is swept by octaves** (`MacroTarget.FilterOctaves`): the cutoff moves from so many octaves at the macro's 0
+to so many at its 1, which is even to the ear all the way. `FilterCutoff` multiplies the cutoff, so a macro turned
+steadily does nearly all it will do in its first few steps: from 100 Hz to 6.4 kHz it is past 3 kHz at halfway.
 
 **The routing rule: an operator is modulated or driven only by one made before it.** So the operators render in
 order, each reading the blocks of those before. `Build` checks the rest too, and throws a `PatchException` naming the
-patch: at most 16 operators; at least one heard; modulators and feedback on a `Sine` only, drivers on a `String` or
-`Tube` only; at most two strings and one tube a patch; a tube driven; a sample with samples.
+patch: at most 16 operators; at least one heard; modulators and feedback on a `Sine` only, drivers on a `String`, a
+`Tube` or `Modes` only; at most two strings and one tube a patch; a tube and modes driven; one to eight modes; a sample
+with samples.
+
+**A pluck is a shape, not noise.** A string with no drivers starts from one period of what a plucked string is: a
+triangle with its peak at `pick` (a share of the string's length from the bridge, 0.02 to 0.5; a fifth by default),
+which lacks the harmonics with a still point there, mixed toward its slope the harder the note is played (brighter),
+with a little noise on top. Every pluck of a note is then as loud as the last; noise alone, over the few samples of a
+high note's period, made one loud and the next thin by 7 dB.
+
+**`Modes` is how bars, bells, skins and bodies are made.** Drive it with a knock (a `Sine` at a fixed frequency under
+`Env.Decay` of a few milliseconds: higher is a harder mallet; give it a level near 0.1, since a mode rings up to many
+times its knock) for a marimba (`Mode.At` 1, 4, 9.2), a free bar (1, 2.76, 5.40, 8.93) or a skin (1, 1.59, 2.14); or
+drive it with a `String` and hear both, for the box an instrument is strung on (`Mode.Fixed` at the box's own
+resonances, with short times and a tap of a hundredth or so: a mode driven without a pause builds up far more than one
+struck once).
 
 The tube is the touchiest. It must be blown at a sustain of 0.8 or more (a `Level` of 1 at an envelope's sustain of
 0.8) to speak below E4; it eases its own pressure below G#4 so low notes stay in their register, and it compensates
@@ -296,6 +365,15 @@ its loop's filters' delay at each note, so it holds within 20 cents from G3 to C
 `SampleData` is a mono recording at its own rate (`SampleData.From(AudioDecoder.Decode(bytes))`). A `SampleZone` says
 which notes and velocities it plays for and its root; a `SampleSet` picks among zones by note and velocity, and among
 alternate takes of the same range in turn.
+
+**A recording with a loop sustains.** It plays to the loop's end and then round it for as long as the note is held, so
+a short recording of a bowed note, an organ pipe or a pad lasts as long as it is asked to; the operator's envelope
+ends it once the note is let go (a one-shot plays through the loop to its end). `recording.Looped(loopStart, loopEnd,
+crossfadeFrames)` makes the loop, with a crossfade written into its last frames so its end arrives where its start
+sets off from: no click. `recording.LoopedAt(hz, startSeconds, lengthSeconds)` finds the loop a steady note wants from
+its pitch: the whole number of its periods nearest the length asked for, with a 20 ms crossfade. Choose a loop a whole
+number of periods long: across one that isn't, the crossfade's two halves partly cancel and the level dips for its
+length. Both copy the samples and leave the recording as it was.
 
 A `DrumKit` is pieces, each sampled in velocity layers of alternate takes, or synthesised from a patch played at note
 60 (`DrumKit.FromPatches`). `Kit` names the common pieces (`Kick`, `Snare`, `HatClosed`, `Crash` and the rest) so a
@@ -320,7 +398,6 @@ manifest's folder, so a kit loads from disk, embedded resources or a package ali
 
 A missing file, a layer with no takes, or layers out of rising `upTo` order throw `InvalidDataException` naming the
 manifest and the piece.
-
 ## 8. The chip: `SynthChip`
 
 A `SynthChip` is an `AudioSource` that plays instruments on a pool of voices:
@@ -343,9 +420,10 @@ chip.Hit(drums, Kit.Snare, 0.9f);
 chip.SetMacro(guitar, new Macro(1), 0.6f);
 ```
 
-- **Groups** each run a chain of effects over their instruments, then into the chip's master. **The two sends** are
-  shared by every patch: `ChipSend.Space` (a reverb by default) and `ChipSend.Echo` (a delay, all wet). The master's
-  own effects run last. Effects are factories, since each chip makes its own instances.
+- **Groups** each run a chain of effects over their instruments, then into the chip's master. **The sends** are
+  shared by every patch: `ChipSend.Space` (a reverb by default), `ChipSend.Echo` (a delay, all wet), and
+  `ChipSend.Key`, which is never heard: it is what keyed effects listen to (§5, `Compressor`). The master's own
+  effects run last. Effects are factories, since each chip makes its own instances.
 - **Stealing.** Past its voices a note takes the voice released longest, or else the oldest, fading it out over 128
   samples first. `Stats.StolenVoices` counts them.
 - **Mono** patches have one voice: a new note moves it, gliding, with its envelopes left alone.
@@ -430,7 +508,8 @@ A note that doesn't slide sounds 90% of its length, so repeated notes are heard 
 the root of each bar's chord (a bass line that follows the chords); `Octave(n)` moves the whole line.
 
 **`Beat`**: drums on a grid, a row a piece (`Eighths`, `Sixteenths`, `Triplets`): `x` a hit (0.75), `X` an accent (1),
-`o` a ghost note (0.35), `.` a rest; spaces and `|` are for reading. Every row is as long.
+`o` a ghost note (0.35), a digit `1` to `9` a hit at that many tenths (a crescendo a step at a time: a snare roll
+`3333 4444 5555 6666 | 7777 8888 9999 XXXX`), `.` a rest; spaces and `|` are for reading. Every row is as long.
 
 **`Strum`**: chords across a guitar's strings, a step a character (`Quarters`, `Eighths`, `Sixteenths`), each chord the
 section's at that step.
@@ -455,6 +534,11 @@ following a cue or held. Tracks share effects through groups (`Fx` makes the eff
 its chords; `section.Play(track, part)` places a part in it, repeated through the section if shorter, cut at its end if
 longer. A placement can be `Named`, play only `When` a condition holds, follow a cue's `Level`, and `EndWith` a fill that
 takes the section's last bar each pass.
+
+**A section can sweep a macro across itself:** `section.Sweep(track, macro, from, to)` moves one of the track's patch
+macros from `from` at the section's first bar to `to` at its end, over whatever the track holds it at or has it follow.
+It is how a build opens or thins a filter towards a drop. In every other section the macro is the track's own again (0
+if the track never set it).
 
 `Order(a, a, b)` plays sections in turn, then from the first again; `Conduct(c => …)` chooses the next one in code a beat
 before each section ends, from the `Conductor`'s current section, its repeats and the cues. With neither, the first

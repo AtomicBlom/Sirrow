@@ -3,8 +3,9 @@ using Loom.Audio.Synth.Chip;
 namespace Loom.Audio.Synth.Music;
 
 /// <summary>
-/// Drums on a grid, a row a piece, a step a character: <c>x</c> a hit, <c>X</c> an accent, <c>o</c> a ghost note,
-/// <c>.</c> a rest. Spaces and <c>|</c> are for reading and mean nothing.
+/// Drums on a grid, a row a piece, a step a character: <c>x</c> a hit (0.75), <c>X</c> an accent (1), <c>o</c> a ghost
+/// note (0.35), a digit <c>1</c> to <c>9</c> a hit at that many tenths (for a crescendo a step at a time), <c>.</c> a
+/// rest. Spaces and <c>|</c> are for reading and mean nothing.
 /// <code>Beat.Eighths((Kit.Kick, "x... x.x. | x... x..."), (Kit.Snare, "..x. ..x. | ..x. ..xo"))</code>
 /// </summary>
 public sealed class Beat : Part
@@ -59,8 +60,9 @@ public sealed class Beat : Part
 					'X' => 1f,
 					'o' => 0.35f,
 					'.' => 0f,
+					>= '1' and <= '9' => (c - '0') / 10f,
 					_ => throw new NotationException(
-						$"Beat \"{pattern}\": '{c}' isn't x, X, o or . (column {i + 1})", pattern, steps / perBar + 1, i + 1),
+						$"Beat \"{pattern}\": '{c}' isn't x, X, o, a digit 1 to 9 or . (column {i + 1})", pattern, steps / perBar + 1, i + 1),
 				};
 				if (velocity > 0f)
 					hits.Add(new RawHit(steps * _step, piece, velocity));

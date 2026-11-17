@@ -20,15 +20,27 @@ internal sealed class ChipVoice
 	private readonly bool[] _idle = new bool[Patch.MaxOperators];
 	private readonly float[] _env = new float[AudioEffect.MaxBlockFrames];   // one operator's envelope times its level, a block at a time
 	private readonly float[] _mix = new float[AudioEffect.MaxBlockFrames];   // the heard operators, mixed
+	private readonly float[] _mixRight = new float[AudioEffect.MaxBlockFrames];   // and the right of them, for a patch whose operators are heard apart
+	private readonly float[] _tapLeft = new float[Patch.MaxOutputs];   // each heard operator's level to the left and to the right, for such a patch
+	private readonly float[] _tapRight = new float[Patch.MaxOutputs];
+	private Svf _filterRight;
+	private float _filterCutoff;
 	private readonly int[] _stringSlot = new int[Patch.MaxOperators];
 	private readonly DelayLine[] _strings = [new(LineFrames), new(LineFrames)];
 	private readonly DelayLine _jet = new(LineFrames);
 	private readonly DelayLine _bore = new(LineFrames);
+	private readonly float[] _pluck = new float[LineFrames];       // a pluck being shaped, before it goes into its string
+	private readonly Resonator[] _modes = new Resonator[Patch.MaxOperators * Mode.Max];   // each operator's modes, in a row
 	private float _reflect, _dc, _dcIn, _boreOut;
 	private Svf _filter;
 	private Envelope _filterEnvelope;
 	private Lfo _lfo;
+	private Lfo _tremolo;
 	private float _attackFrames;
+
+	// How often the pitch, the filter and the levels are worked out, in frames: often enough that a drum's falling pitch
+	// and a filter's sweep are heard as moving, not as steps
+	private const int ControlFrames = 64;
 
 	public ChipVoice(int index, int rate)
 	{
@@ -99,9 +111,16 @@ internal sealed class ChipVoice
 		{
 			var spec = specs[i];
 			ref var op = ref _ops[i];
-			op.Phase = 0f;
+			op.Phase = spec.StartPhase;
 			op.Y1 = op.Y2 = 0f;
-			op.Env.Prepare(spec.Envelope, _rate);
+			// How the operator follows the keyboard: its level by decibels an octave, its ring by a share an octave
+			var octaves = (e.Note - 60f) / 12f;
+			op.KeyGain = spec.KeyLevelDb == 0f ? 1f : Units.DbToGain(spec.KeyLevelDb * octaves);
+			op.KeyTime = spec.KeyDecay == 0f ? 1f : MathF.Pow(MathF.Max(1f - Math.Clamp(spec.KeyDecay, 0f, 0.95f), 0.05f), octaves);
+			var shape = spec.Envelope;
+			if (op.KeyTime != 1f)
+				shape = shape with { Decay = shape.Decay * op.KeyTime, Release = shape.Release * op.KeyTime };
+			op.Env.Prepare(shape, _rate);
 			op.Env.Gate(true);
 			op.Pink = default;
 			op.Position = 0.0;
@@ -128,8 +147,13 @@ internal sealed class ChipVoice
 					break;
 				case OperatorKind.String:
 					_stringSlot[i] = strings;
-					_strings[strings++].Clear();
-					op.Burst = (int)MathF.Ceiling(_rate / (hz * spec.Ratio));
+					_strings[strings].Clear();
+					if (spec.Drivers.Length == 0)
+						Pluck(_strings[strings], ref op, spec, hz, e.Velocity);
+					strings++;
+					break;
+				case OperatorKind.Modes:
+					Array.Clear(_modes, i * Mode.Max, Mode.Max);
 					break;
 				case OperatorKind.Tube:
 					_jet.Clear();
@@ -141,12 +165,57 @@ internal sealed class ChipVoice
 		instrument.NoteTurn++;
 
 		_filter = default;
+		_filterRight = default;
+		if (patch.Wide)
+			for (var t = 0; t < patch.Outputs.Length; t++)
+			{
+				// Each heard operator between the two sides by its pan, at the same power wherever it sits
+				var tap = patch.Outputs[t];
+				var across = (Math.Clamp(tap.Pan, -1f, 1f) + 1f) * (MathF.PI / 4f);
+				_tapLeft[t] = tap.Level * MathF.Cos(across);
+				_tapRight[t] = tap.Level * MathF.Sin(across);
+			}
 		if (patch.Filter is { } filter)
 		{
 			_filterEnvelope.Prepare(filter.Envelope, _rate);
 			_filterEnvelope.Gate(true);
 		}
 		_lfo.Reset(0f);
+		_tremolo.Reset(0f);
+	}
+
+	// A pluck: one period of the shape a plucked string starts from, put into the string. Pulled aside at one point and
+	// let go, a string is a triangle with its peak there, which has every harmonic but those with a still point at the
+	// pick, each weaker as the square of its number: a soft, round pluck. A harder one is nearer that triangle's slope (a
+	// step up, a step down), whose harmonics fall only as their number: brighter. A little noise on top keeps two plucks
+	// from being the same sample for sample. Noise alone, which a simpler string starts from, has harmonics of whatever
+	// strength it happened to have, so over the few samples of a high note's period one pluck was loud and the next thin
+	private void Pluck(DelayLine line, ref OpState op, OperatorSpec spec, float hz, float velocity)
+	{
+		var period = Math.Clamp((int)MathF.Ceiling(_rate / (hz * spec.Ratio)), 2, LineFrames - 8);
+		var shaped = _pluck.AsSpan(0, period);
+		var pick = Math.Clamp(spec.Pick, 0.02f, 0.5f);
+		var hard = 0.25f + 0.75f * Math.Clamp(velocity, 0f, 1f);
+		// The triangle and its slope, each with no average and a strength of 1
+		var triangle = (1f - hard) * 3.4641f;
+		var step = hard * MathF.Sqrt(pick * (1f - pick));
+		var squares = 0f;
+		for (var s = 0; s < period; s++)
+		{
+			var t = (s + 0.5f) / period;
+			var x = t < pick
+				? triangle * (t / pick - 0.5f) + step / pick
+				: triangle * ((1f - t) / (1f - pick) - 0.5f) - step / (1f - pick);
+			x += 0.25f * op.Noise.Next();
+			shaped[s] = x;
+			squares += x * x;
+		}
+		// To one strength whatever the shape, at the pluck's velocity. White noise at full scale is more than twice as
+		// strong, but most of it is high harmonics that die at once or never pass a patch's filter: this sounds as loud
+		var scale = squares > 1e-12f ? 0.26f * velocity / MathF.Sqrt(squares / period) : 0f;
+		for (var s = 0; s < period; s++)
+			line.Write(shaped[s] * scale);
+		op.Burst = 0;
 	}
 
 	/// <summary>A note moved by a mono patch: the new pitch and id, its envelopes left alone (gated on again if let go).</summary>
@@ -192,7 +261,20 @@ internal sealed class ChipVoice
 	/// (its heard operators idle and the block silent, or faded out).
 	/// </summary>
 	public bool Render(int n, float[][] scratch, float[] groupLeft, float[] groupRight, float[] spaceLeft, float[] spaceRight,
-		float[] echoLeft, float[] echoRight, float[] gainSlots)
+		float[] echoLeft, float[] echoRight, float[] keyLeft, float[] keyRight, float[] gainSlots)
+	{
+		LastPeak = 0f;
+		var ended = false;
+		for (var offset = 0; offset < n; offset += ControlFrames)
+			ended = RenderStretch(offset, Math.Min(ControlFrames, n - offset), scratch, groupLeft, groupRight, spaceLeft, spaceRight,
+				echoLeft, echoRight, keyLeft, keyRight, gainSlots);
+		return ended;
+	}
+
+	// The next n frames, at most ControlFrames, into the buffers from offset on: the pitch, the filter and the levels
+	// worked out once, then each operator in turn
+	private bool RenderStretch(int offset, int n, float[][] scratch, float[] groupLeft, float[] groupRight, float[] spaceLeft, float[] spaceRight,
+		float[] echoLeft, float[] echoRight, float[] keyLeft, float[] keyRight, float[] gainSlots)
 	{
 		var patch = Patch;
 		var macros = Instrument!.Macros;
@@ -211,6 +293,7 @@ internal sealed class ChipVoice
 			switch (macro.Target)
 			{
 				case MacroTarget.FilterCutoff: cutoffScale *= value; break;
+				case MacroTarget.FilterOctaves: cutoffScale *= MathF.Pow(2f, value); break;
 				case MacroTarget.Drive: drive = value; break;
 				case MacroTarget.Gain: gainScale *= value; break;
 				case MacroTarget.SendSpace: sendSpace = value; break;
@@ -238,6 +321,8 @@ internal sealed class ChipVoice
 			: 0f;
 		var note = CurrentNote + vibrato + drop;
 		var hz = Units.NoteToHz(note);
+		// The drop bends a fixed operator as well: a kick's sine at 50 Hz whatever the note still falls to it
+		var dropRatio = drop == 0f ? 1f : MathF.Pow(2f, drop / 12f);
 
 		// The operators, in order: each fills its own scratch block from those before it
 		var specs = patch.Operators;
@@ -245,16 +330,16 @@ internal sealed class ChipVoice
 		{
 			var spec = specs[i];
 			var output = scratch[i];
-			var level = spec.Level * (1f - spec.Velocity + spec.Velocity * Velocity);
+			ref var op = ref _ops[i];
+			var level = spec.Level * (1f - spec.Velocity + spec.Velocity * Velocity) * op.KeyGain;
 			foreach (var macro in patch.Macros)
 				if (macro.Target == MacroTarget.OperatorLevel && macro.Operator == i)
 					level *= macro.From + (macro.To - macro.From) * macros[macro.Macro.Id];
-			var freq = spec.FixedHz > 0f ? spec.FixedHz : hz * spec.Ratio * Units.CentsToRatio(spec.DetuneCents);
+			var freq = spec.FixedHz > 0f ? spec.FixedHz * dropRatio : spec.DetuneCents == 0f ? hz * spec.Ratio : hz * spec.Ratio * Units.CentsToRatio(spec.DetuneCents);
 			var dt = freq / rate;
-			ref var op = ref _ops[i];
 			// The envelope a block at a time, times the level, for the operators that have one
 			var env = _env.AsSpan(0, n);
-			if (spec.Kind is not (OperatorKind.String or OperatorKind.Tube))
+			if (spec.Kind is not (OperatorKind.String or OperatorKind.Tube or OperatorKind.Modes))
 			{
 				op.Env.Fill(env);
 				for (var s = 0; s < n; s++)
@@ -269,6 +354,7 @@ internal sealed class ChipVoice
 				case OperatorKind.Sample: RenderSample(ref op, spec, output, n, note, _env); break;
 				case OperatorKind.String: RenderString(ref op, spec, scratch, output, n, hz, level, i); break;
 				case OperatorKind.Tube: RenderTube(spec, scratch, output, n, hz, level); break;
+				case OperatorKind.Modes: RenderModes(ref op, spec, scratch, output, n, hz, level, i); break;
 			}
 		}
 
@@ -282,18 +368,53 @@ internal sealed class ChipVoice
 			var octaves = filterSpec.EnvelopeOctaves * env + filterSpec.KeyTrack * (note - 60f) / 12f + filterSpec.Velocity * 4f * (Velocity - 1f);
 			var cutoff = Math.Clamp(filterSpec.CutoffHz * MathF.Pow(2f, octaves) * cutoffScale, 20f, 0.45f * rate);
 			_filter.Set(cutoff, filterSpec.Q, rate);
+			_filterCutoff = cutoff;
 		}
 
 		var driveGain = 1f + 8f * Math.Clamp(drive, 0f, 1f);
 		var driveNorm = 1f / MathF.Sqrt(driveGain);
 		var gain = Velocity * Velocity * Units.DbToGain(patch.GainDb) * gainScale * Instrument.Gain;
+		if (patch.TremoloDepth > 0f && patch.TremoloHz > 0f)
+		{
+			_tremolo.Set(patch.TremoloHz * n, rate);
+			gain *= 1f - Math.Clamp(patch.TremoloDepth, 0f, 1f) * (0.5f + 0.5f * _tremolo.Next());
+		}
 		var pan = Math.Clamp(patch.Pan + NotePan, -1f, 1f);
-		var angle = (pan + 1f) * (MathF.PI / 4f);
-		var toLeft = MathF.Cos(angle);
-		var toRight = MathF.Sin(angle);
+		// A patch whose operators are heard apart is two channels from here on, each with the filter and the drive, and the
+		// voice's pan leans the pair as a balance; any other is one, placed by its pan. For the one, the right is the left
+		var wide = patch.Wide;
+		float toLeft, toRight;
+		if (wide)
+		{
+			toLeft = MathF.Min(1f, 1f - pan);
+			toRight = MathF.Min(1f, 1f + pan);
+		}
+		else
+		{
+			var angle = (pan + 1f) * (MathF.PI / 4f);
+			toLeft = MathF.Cos(angle);
+			toRight = MathF.Sin(angle);
+		}
 		// The heard operators mixed, then filtered and driven, each a pass over the block
 		var mix = _mix;
+		var mixRight = wide ? _mixRight : _mix;
 		var outputs = patch.Outputs;
+		if (wide)
+		{
+			Array.Clear(mix, 0, n);
+			Array.Clear(mixRight, 0, n);
+			for (var t = 0; t < outputs.Length; t++)
+			{
+				var source = scratch[outputs[t].Operator];
+				float l = _tapLeft[t], r = _tapRight[t];
+				for (var s = 0; s < n; s++)
+				{
+					mix[s] += l * source[s];
+					mixRight[s] += r * source[s];
+				}
+			}
+		}
+		else
 		{
 			var first = outputs[0];
 			var source = scratch[first.Operator];
@@ -309,32 +430,27 @@ internal sealed class ChipVoice
 		}
 		if (filterSpec is not null)
 		{
-			// A local copy, so its state stays in registers through the block
-			var filter = _filter;
-			switch (filterSpec.Kind)
+			Filtered(mix, n, filterSpec.Kind, ref _filter);
+			if (wide)
 			{
-				case FilterKind.LowPass:
-					for (var s = 0; s < n; s++)
-						mix[s] = filter.LowPass(mix[s]);
-					break;
-				case FilterKind.BandPass:
-					for (var s = 0; s < n; s++)
-						mix[s] = filter.BandPass(mix[s]);
-					break;
-				default:
-					for (var s = 0; s < n; s++)
-						mix[s] = filter.HighPass(mix[s]);
-					break;
+				_filterRight.Set(_filterCutoff, filterSpec.Q, rate);
+				Filtered(mixRight, n, filterSpec.Kind, ref _filterRight);
 			}
-			filter.Flush();
-			_filter = filter;
 		}
 		if (drive > 0f)
+		{
 			for (var s = 0; s < n; s++)
 				mix[s] = MathF.Tanh(mix[s] * driveGain) * driveNorm;
+			if (wide)
+				for (var s = 0; s < n; s++)
+					mixRight[s] = MathF.Tanh(mixRight[s] * driveGain) * driveNorm;
+		}
 		var peak = 0f;
 		for (var s = 0; s < n; s++)
 			peak = MathF.Max(peak, MathF.Abs(mix[s]));
+		if (wide)
+			for (var s = 0; s < n; s++)
+				peak = MathF.Max(peak, MathF.Abs(mixRight[s]));
 
 		// Gain, the fade of a voice being stolen or choked, pan, and the sends
 		// A gain slot the game moves while the note sounds (a part's level), ramped across the block from where it was
@@ -350,45 +466,92 @@ internal sealed class ChipVoice
 			{
 				if (FadeStep > 0f)
 					fade = MathF.Max(0f, fade - FadeStep);
-				mix[s] *= fade * (slot0 + slotStep * s);
+				var by = fade * (slot0 + slotStep * s);
+				mix[s] *= by;
+				if (wide)
+					mixRight[s] *= by;
 			}
 		Fade = fade;
 		var heard = 0f;
 		for (var s = 0; s < n; s++)
-			heard = MathF.Max(heard, MathF.Abs(mix[s]));
-		LastPeak = heard * gain;
+			heard = MathF.Max(heard, MathF.Max(MathF.Abs(mix[s]), MathF.Abs(mixRight[s])));
+		// A wide patch's two channels each hold what a centred one's single channel becomes only after its pan (1 / √2 of
+		// it a side): so the two read alike on a meter when they sound alike
+		LastPeak = MathF.Max(LastPeak, heard * gain * (wide ? 1.4142135f : 1f));
+		var into = groupLeft.AsSpan(offset, n);
+		var intoRight = groupRight.AsSpan(offset, n);
 		for (var s = 0; s < n; s++)
 		{
-			groupLeft[s] += mix[s] * left;
-			groupRight[s] += mix[s] * right;
+			into[s] += mix[s] * left;
+			intoRight[s] += mixRight[s] * right;
 		}
 		// Most patches send nothing: skip the sends' buffers then
 		if (sendSpace != 0f)
 		{
 			var l = left * sendSpace;
 			var r = right * sendSpace;
+			into = spaceLeft.AsSpan(offset, n);
+			intoRight = spaceRight.AsSpan(offset, n);
 			for (var s = 0; s < n; s++)
 			{
-				spaceLeft[s] += mix[s] * l;
-				spaceRight[s] += mix[s] * r;
+				into[s] += mix[s] * l;
+				intoRight[s] += mixRight[s] * r;
 			}
 		}
 		if (sendEcho != 0f)
 		{
 			var l = left * sendEcho;
 			var r = right * sendEcho;
+			into = echoLeft.AsSpan(offset, n);
+			intoRight = echoRight.AsSpan(offset, n);
 			for (var s = 0; s < n; s++)
 			{
-				echoLeft[s] += mix[s] * l;
-				echoRight[s] += mix[s] * r;
+				into[s] += mix[s] * l;
+				intoRight[s] += mixRight[s] * r;
+			}
+		}
+		if (patch.SendKey != 0f)
+		{
+			var l = left * patch.SendKey;
+			var r = right * patch.SendKey;
+			into = keyLeft.AsSpan(offset, n);
+			intoRight = keyRight.AsSpan(offset, n);
+			for (var s = 0; s < n; s++)
+			{
+				into[s] += mix[s] * l;
+				intoRight[s] += mixRight[s] * r;
 			}
 		}
 		_filter.Flush();
+		_filterRight.Flush();
 		AgeFrames += n;
 
 		if (FadeStep > 0f && fade <= 0f)
 			return true;
 		return HeardIdle() && peak < Silent;
+	}
+
+	// A block through the voice's filter. The filter is worked on as a local copy, so its state stays in registers
+	private static void Filtered(float[] block, int n, FilterKind kind, ref Svf state)
+	{
+		var filter = state;
+		switch (kind)
+		{
+			case FilterKind.LowPass:
+				for (var s = 0; s < n; s++)
+					block[s] = filter.LowPass(block[s]);
+				break;
+			case FilterKind.BandPass:
+				for (var s = 0; s < n; s++)
+					block[s] = filter.BandPass(block[s]);
+				break;
+			default:
+				for (var s = 0; s < n; s++)
+					block[s] = filter.HighPass(block[s]);
+				break;
+		}
+		filter.Flush();
+		state = filter;
 	}
 
 	// Whether every operator the output hears has finished: its envelope idle (or a struck one died away), a sample past
@@ -404,7 +567,7 @@ internal sealed class ChipVoice
 			{
 				OperatorKind.Sample => op.Data is null || op.Position >= op.Data.Samples.Length || (!spec.OneShot && EnvelopeDone(ref op, spec)),
 				OperatorKind.String => spec.Drivers.Length == 0 ? op.Burst <= 0 : DriversIdle(spec),
-				OperatorKind.Tube => DriversIdle(spec),
+				OperatorKind.Tube or OperatorKind.Modes => DriversIdle(spec),
 				_ => EnvelopeDone(ref op, spec),
 			};
 		}
@@ -522,19 +685,30 @@ internal sealed class ChipVoice
 		var samples = data.Samples;
 		var step = Units.NoteToHz(note) / op.RootHz * spec.Ratio * data.SampleRate / _rate;
 		var position = op.Position;
+		// A looped recording goes round its loop for as long as the voice sounds; a one-shot plays through to its end
+		var looped = data.IsLooped && !spec.OneShot;
+		var end = looped ? Math.Min(data.LoopEnd, samples.Length) : samples.Length;
+		var loop = looped ? end - data.LoopStart : 0;
 		for (var s = 0; s < n; s++)
 		{
-			if (position >= samples.Length)
+			if (position >= end)
 			{
-				output[s] = 0f;
-				continue;
+				if (!looped)
+				{
+					output[s] = 0f;
+					continue;
+				}
+				do
+					position -= loop;
+				while (position >= end);
 			}
 			var i = (int)position;
 			var t = (float)(position - i);
 			var ym1 = At(samples, i - 1);
 			var y0 = At(samples, i);
-			var y1 = At(samples, i + 1);
-			var y2 = At(samples, i + 2);
+			// Past the loop's last frame, the curve's points are the loop's first: where the playing goes next
+			var y1 = At(samples, looped && i + 1 >= end ? i + 1 - loop : i + 1);
+			var y2 = At(samples, looped && i + 2 >= end ? i + 2 - loop : i + 2);
 			var c1 = 0.5f * (y1 - ym1);
 			var c2 = ym1 - 2.5f * y0 + 2f * y1 - 0.5f * y2;
 			var c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
@@ -552,7 +726,7 @@ internal sealed class ChipVoice
 		var period = _rate / (hz * spec.Ratio);
 		var smooth = 0.5f * Math.Clamp(spec.Damping, 0f, 1f);
 		var delay = Math.Clamp(period - smooth, 2f, LineFrames - 6f);
-		var loss = MathF.Pow(10f, -3f * period / (MathF.Max(spec.DecaySeconds, 0.01f) * _rate)) * op.LossScale;
+		var loss = MathF.Pow(10f, -3f * period / (MathF.Max(spec.DecaySeconds * op.KeyTime, 0.01f) * _rate)) * op.LossScale;
 		var drivers = spec.Drivers;
 		var previous = op.Previous;
 		for (var s = 0; s < n; s++)
@@ -575,6 +749,37 @@ internal sealed class ChipVoice
 		}
 		Denormal.Flush(ref previous);
 		op.Previous = previous;
+	}
+
+	// A bank of resonances rung by the operator's drivers, each mode at its own frequency (a ratio of the note's, or
+	// fixed) for its own time
+	private void RenderModes(ref OpState op, OperatorSpec spec, float[][] scratch, float[] output, int n, float hz, float level, int index)
+	{
+		var struck = _env.AsSpan(0, n);
+		struck.Clear();
+		foreach (var driver in spec.Drivers)
+		{
+			var from = scratch[driver].AsSpan(0, n);
+			for (var s = 0; s < n; s++)
+				struck[s] += from[s];
+		}
+		var o = output.AsSpan(0, n);
+		o.Clear();
+		var modes = spec.Modes;
+		var top = 0.45f * _rate;
+		for (var m = 0; m < modes.Length; m++)
+		{
+			var mode = modes[m];
+			var f = mode.Hz > 0f ? mode.Hz : hz * spec.Ratio * mode.Ratio;
+			if (f >= top)
+				continue;
+			ref var ring = ref _modes[index * Mode.Max + m];
+			ring.Set(f, mode.DecaySeconds * op.KeyTime, _rate);
+			var gain = mode.Level * level;
+			for (var s = 0; s < n; s++)
+				o[s] += gain * ring.Tick(struck[s]);
+			ring.Flush();
+		}
 	}
 
 	// The flute of the Synthesis Toolkit (STK): a jet's delay driving a bore's, through the jet's cubic
@@ -628,5 +833,7 @@ internal sealed class ChipVoice
 		public float Previous;
 		public int Burst;
 		public float LossScale;
+		public float KeyGain;     // the operator's level for this note, from how it follows the keyboard
+		public float KeyTime;     // and what its decay, release and ring are multiplied by
 	}
 }

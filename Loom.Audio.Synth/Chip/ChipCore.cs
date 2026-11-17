@@ -1,3 +1,5 @@
+using Loom.Audio.Synth.Effects;
+
 namespace Loom.Audio.Synth.Chip;
 
 /// <summary>
@@ -16,6 +18,9 @@ internal sealed class ChipCore
 	private AudioEffect[] _spaceEffects = [], _echoEffects = [], _masterEffects = [];
 	private readonly float[] _spaceLeft = new float[AudioEffect.MaxBlockFrames], _spaceRight = new float[AudioEffect.MaxBlockFrames];
 	private readonly float[] _echoLeft = new float[AudioEffect.MaxBlockFrames], _echoRight = new float[AudioEffect.MaxBlockFrames];
+	// The key: what voices send to ChipSend.Key, handed to keyed effects and never heard
+	private readonly float[] _keyLeft = new float[AudioEffect.MaxBlockFrames];
+	private readonly float[] _keyRight = new float[AudioEffect.MaxBlockFrames];
 	private readonly float[] _masterLeft = new float[AudioEffect.MaxBlockFrames], _masterRight = new float[AudioEffect.MaxBlockFrames];
 	private int _rate;
 	private long _started;
@@ -222,6 +227,8 @@ internal sealed class ChipCore
 		Array.Clear(_spaceRight, 0, n);
 		Array.Clear(_echoLeft, 0, n);
 		Array.Clear(_echoRight, 0, n);
+		Array.Clear(_keyLeft, 0, n);
+		Array.Clear(_keyRight, 0, n);
 		Array.Clear(_masterLeft, 0, n);
 		Array.Clear(_masterRight, 0, n);
 
@@ -238,7 +245,7 @@ internal sealed class ChipCore
 					voice.Release(++_released);
 			}
 			var group = voice.Instrument!.Group;
-			var ended = voice.Render(n, _scratch, _groupLeft[group], _groupRight[group], _spaceLeft, _spaceRight, _echoLeft, _echoRight, GainSlots);
+			var ended = voice.Render(n, _scratch, _groupLeft[group], _groupRight[group], _spaceLeft, _spaceRight, _echoLeft, _echoRight, _keyLeft, _keyRight, GainSlots);
 			if (voice.HasPending && voice.Fade <= 0f)
 			{
 				var pending = voice.Pending;
@@ -271,9 +278,7 @@ internal sealed class ChipCore
 		Mix(_echoEffects, _echoLeft, _echoRight, n);
 		var masterLeft = _masterLeft.AsSpan(0, n);
 		var masterRight = _masterRight.AsSpan(0, n);
-		foreach (var effect in _masterEffects)
-			if (!effect.Bypass)
-				effect.Process(masterLeft, masterRight);
+		Run(_masterEffects, masterLeft, masterRight);
 		masterLeft.CopyTo(left);
 		masterRight.CopyTo(right);
 
@@ -287,13 +292,24 @@ internal sealed class ChipCore
 	{
 		var l = left.AsSpan(0, n);
 		var r = right.AsSpan(0, n);
-		foreach (var effect in effects)
-			if (!effect.Bypass)
-				effect.Process(l, r);
+		Run(effects, l, r);
 		for (var s = 0; s < n; s++)
 		{
 			_masterLeft[s] += left[s];
 			_masterRight[s] += right[s];
+		}
+	}
+
+	// A chain of effects over a block, each keyed one handed the chip's key first, even if it then rests
+	private void Run(AudioEffect[] effects, Span<float> left, Span<float> right)
+	{
+		var n = left.Length;
+		foreach (var effect in effects)
+		{
+			if (effect is IKeyedEffect keyed)
+				keyed.Key(_keyLeft.AsSpan(0, n), _keyRight.AsSpan(0, n));
+			if (!effect.Bypass)
+				effect.Run(left, right);
 		}
 	}
 }

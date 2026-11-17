@@ -45,6 +45,26 @@ public sealed class Section
 		return placement;
 	}
 
+	private readonly List<(SongTrack Track, Chip.Macro Macro, float From, float To)> _sweeps = [];
+
+	internal IReadOnlyList<(SongTrack Track, Chip.Macro Macro, float From, float To)> Sweeps => _sweeps;
+
+	/// <summary>
+	/// While this section plays, one of <paramref name="track"/>'s patch macros moves from <paramref name="from"/> at its
+	/// first bar to <paramref name="to"/> at its end, whatever the track holds it at or has it follow elsewhere: a filter
+	/// opening over a build, or closing over the bars before a break. In any other section the macro is the track's own.
+	/// </summary>
+	/// <exception cref="ArgumentException">The track isn't this song's.</exception>
+	public void Sweep(SongTrack track, Chip.Macro macro, float from, float to)
+	{
+		ArgumentNullException.ThrowIfNull(track);
+		if (track.Song != Song)
+			throw new ArgumentException($"Track '{track.Name}' belongs to another song.", nameof(track));
+		if ((uint)macro.Id >= Chip.Macro.Count)
+			throw new ArgumentOutOfRangeException(nameof(macro), macro.Id, $"A macro is 0 to {Chip.Macro.Count - 1}.");
+		_sweeps.Add((track, macro, from, to));
+	}
+
 	/// <inheritdoc/>
 	public override string ToString() => Name;
 }

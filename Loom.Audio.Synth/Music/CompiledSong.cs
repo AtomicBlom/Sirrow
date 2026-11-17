@@ -57,7 +57,15 @@ internal sealed class CompiledSong
 				HumaniseMs = track.HumaniseMs,
 				HumaniseVelocity = track.HumaniseVelocity,
 				Seed = Seed(track.Name),
-				Macros = [.. track.Macros.Select(m => new MacroFollow(m.Macro.Id, m.Cue is null ? -1 : Slot(m.Cue), m.From, m.To))],
+				// A macro some section sweeps and the track says nothing about is held at 0 (where every macro starts), so
+				// it goes back there when the section that swept it is over
+				Macros =
+				[
+					.. track.Macros.Select(m => new MacroFollow(m.Macro.Id, m.Cue is null ? -1 : Slot(m.Cue), m.From, m.To)),
+					.. song.Sections.SelectMany(s => s.Sweeps)
+						.Where(w => w.Track == track && track.Macros.All(m => m.Macro != w.Macro))
+						.Select(w => w.Macro.Id).Distinct().Select(id => new MacroFollow(id, -1, 0f, 0f)),
+				],
 			};
 		}
 
@@ -110,7 +118,14 @@ internal sealed class CompiledSong
 				};
 			}
 			most = Math.Max(most, placements.Length);
-			sections[s] = new CompiledSection { Source = section, Name = section.Name, LengthTicks = length, Placements = placements };
+			sections[s] = new CompiledSection
+			{
+				Source = section,
+				Name = section.Name,
+				LengthTicks = length,
+				Placements = placements,
+				Sweeps = [.. section.Sweeps.Select(w => (w.Track.Index, w.Macro.Id, w.From, w.To))],
+			};
 		}
 
 		var order = song.Conductor is not null ? [] : song.OrderList.Count > 0 ? song.OrderList.Select(o => o.Index).ToArray() : [0];
@@ -226,6 +241,8 @@ internal sealed class CompiledSection
 	public string Name { get; init; } = "";
 	public int LengthTicks { get; init; }
 	public CompiledPlacement[] Placements { get; init; } = [];
+	// The macros swept across the section: a track's index, the macro's, and its value at the section's start and end
+	public (int Track, int Macro, float From, float To)[] Sweeps { get; init; } = [];
 }
 
 /// <summary>A placement as the sequencer reads it: its events through the whole section, a fill's in its last bar.</summary>

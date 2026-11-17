@@ -220,6 +220,14 @@ internal sealed class MusicSource : AudioSource
 				var value = macro.Slot < 0 ? macro.From : macro.From + (macro.To - macro.From) * Volatile.Read(ref state.Cues[macro.Slot]);
 				state.Instruments[t].Macros[macro.Macro] = Math.Clamp(value, 0f, 1f);
 			}
+		// A macro the section sweeps is where the section has got to, over whatever its track said
+		var section = song.Sections[_section];
+		if (section.Sweeps.Length > 0)
+		{
+			var through = (float)Math.Clamp(_tick / section.LengthTicks, 0.0, 1.0);
+			foreach (var sweep in section.Sweeps)
+				state.Instruments[sweep.Track].Macros[sweep.Macro] = Math.Clamp(sweep.From + (sweep.To - sweep.From) * through, 0f, 1f);
+		}
 	}
 
 	// The section's end: the next one decided, else the next in the song's order, else the same again; Loop holds it

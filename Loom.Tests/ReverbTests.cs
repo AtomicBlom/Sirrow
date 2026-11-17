@@ -63,6 +63,59 @@ public class ReverbTests
 		difference.ShouldBeGreaterThan(0.1 * level);
 	}
 
+	// The tail of a click, as blocks of 10 ms: how many of them, from 50 ms to 300 ms after it, are much quieter than
+	// their neighbours. An echo that comes back as a few echoes leaves gaps; one that comes back as many fills them
+	private static int Gaps(Reverb reverb)
+	{
+		const int Frames = EffectRig.Rate / 2;
+		float[] left = EffectRig.Impulse(Frames), right = EffectRig.Impulse(Frames);
+		EffectRig.Run(EffectRig.Prepared(reverb), left, right);
+		const int Block = EffectRig.Rate / 100;
+		var levels = new float[30];
+		for (var b = 0; b < levels.Length; b++)
+			levels[b] = AudioAnalysis.Rms(left.AsSpan((5 + b) * Block, Block));
+		var gaps = 0;
+		for (var b = 1; b < levels.Length - 1; b++)
+			if (levels[b] < 0.35f * MathF.Min(levels[b - 1], levels[b + 1]))
+				gaps++;
+		return gaps;
+	}
+
+	[Test]
+	public void A_click_s_tail_is_dense_from_the_start() => Gaps(new Reverb()).ShouldBe(0);
+
+	[Test]
+	public void Its_swaying_lines_keep_a_held_note_s_tail_from_ringing_on_a_few_frequencies()
+	{
+		// A second of one note, then its tail in a long room. Held still, the network rings on at its own frequencies
+		// nearest the note, a few sharp lines a few hertz apart; swaying, those frequencies move and the lines blur into
+		// each other. How far the strongest stands over the average of what is within 40 Hz of the note says which
+		static float Sharpness(float modulation)
+		{
+			var reverb = EffectRig.Prepared(new Reverb { DecaySeconds = { Value = 6f }, Modulation = { Value = modulation } });
+			const int Frames = 3 * EffectRig.Rate;
+			var left = new float[Frames];
+			var right = new float[Frames];
+			EffectRig.Sine(1000, EffectRig.Rate, 0.5f).CopyTo(left, 0);
+			EffectRig.Sine(1000, EffectRig.Rate, 0.5f).CopyTo(right, 0);
+			EffectRig.Run(reverb, left, right);
+			const int Size = 65536;
+			var spectrum = AudioAnalysis.Spectrum(left.AsSpan(EffectRig.Rate + EffectRig.Rate / 3, Size));
+			var bin = (double)EffectRig.Rate / Size;
+			float strongest = 0f, sum = 0f;
+			var count = 0;
+			for (var k = (int)(960 / bin); k <= (int)(1040 / bin); k++)
+			{
+				strongest = MathF.Max(strongest, spectrum[k]);
+				sum += spectrum[k];
+				count++;
+			}
+			return strongest / (sum / count);
+		}
+
+		Sharpness(1f).ShouldBeLessThan(0.8f * Sharpness(0f));
+	}
+
 	[Test]
 	public void A_short_tail_dies_away()
 	{

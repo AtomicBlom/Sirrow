@@ -71,6 +71,41 @@ public class MusicPlayerTests
 	}
 
 	[Test]
+	public void A_section_sweeps_a_macro_from_its_first_bar_to_its_last()
+	{
+		// A saw under a low-pass that a macro opens from 100 Hz to 6.4 kHz, swept across a section of two bars; then a
+		// section that doesn't sweep it, where it is back as the track has it (shut)
+		var macro = new Macro(0);
+		var bright = Patch.Build("bright", p =>
+		{
+			p.Out(p.Wave(Waveform.Saw, 1f, Env.Gate, 0.5f));
+			p.Filter(Filter.LowPass(100f));
+			p.Macro(macro, MacroTarget.FilterCutoff, 1f, 64f);
+		});
+		var song = new Song("sweep") { Tempo = 120 };
+		var track = song.Track("saw", bright);
+		var build = song.Section("build", 2);
+		build.Play(track, Line.Quarters("1 1 1 1"));
+		build.Sweep(track, macro, 0f, 1f);
+		var after = song.Section("after", 1);
+		after.Play(track, Line.Quarters("1 1 1 1"));
+		song.Order(build, after);
+
+		using var rig = new MusicRig();
+		rig.Player.Play(song);
+		rig.Step(3 * MusicRig.Bar);
+
+		// Louder as the filter opens: by halfway it is past everything the saw has, and it stays open to the end
+		var first = rig.Rms(0, MusicRig.Beat);
+		var middle = rig.Rms(4 * MusicRig.Beat, MusicRig.Beat);
+		var last = rig.Rms(7 * MusicRig.Beat, MusicRig.Beat);
+		middle.ShouldBeGreaterThan(1.3f * first);
+		last.ShouldBeGreaterThan(0.98f * middle);
+		// And shut in the section after, further than in the first beat, during which it was already opening
+		rig.Rms(9 * MusicRig.Beat, MusicRig.Beat).ShouldBeLessThan(0.6f * first);
+	}
+
+	[Test]
 	public void A_new_song_crossfades_over_the_last()
 	{
 		using var rig = new MusicRig();

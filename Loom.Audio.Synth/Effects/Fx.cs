@@ -46,14 +46,28 @@ public static class Fx
 		return effect;
 	};
 
-	/// <summary>A <see cref="Effects.Compressor"/>.</summary>
-	public static Func<AudioEffect> Compressor(float thresholdDb = -18f, float ratio = 4f) => () =>
+	/// <summary>A <see cref="Effects.Compressor"/>: on a group of drums, glue and punch.</summary>
+	public static Func<AudioEffect> Compressor(float thresholdDb = -18f, float ratio = 4f, float attackSeconds = 0.01f,
+		float releaseSeconds = 0.15f, float makeupDb = 0f, float kneeDb = 6f, bool keyed = false) => () =>
 	{
-		var effect = new Compressor();
+		var effect = new Compressor(keyed);
 		effect.ThresholdDb.Value = thresholdDb;
 		effect.Ratio.Value = ratio;
+		effect.AttackSeconds.Value = attackSeconds;
+		effect.ReleaseSeconds.Value = releaseSeconds;
+		effect.MakeupDb.Value = makeupDb;
+		effect.KneeDb.Value = kneeDb;
 		return effect;
 	};
+
+	/// <summary>
+	/// A keyed <see cref="Effects.Compressor"/> that ducks: on the bass's group, it turns the bass down while what sends to
+	/// the chip's key (<see cref="Chip.ChipSend.Key"/>, a kick) sounds, and lets it back up over
+	/// <paramref name="releaseSeconds"/>. The key is heard after its voices' gain, so the threshold is measured against
+	/// the key as loud as it plays.
+	/// </summary>
+	public static Func<AudioEffect> Duck(float thresholdDb = -30f, float ratio = 8f, float attackSeconds = 0.002f, float releaseSeconds = 0.12f) =>
+		Compressor(thresholdDb, ratio, attackSeconds, releaseSeconds, kneeDb: 3f, keyed: true);
 
 	/// <summary>An <see cref="Effects.Eq"/> with its shelves set.</summary>
 	public static Func<AudioEffect> Eq(float lowDb = 0f, float highDb = 0f) => () =>

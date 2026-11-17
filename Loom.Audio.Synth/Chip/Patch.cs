@@ -19,6 +19,9 @@ public sealed record Patch
 	/// <summary>The most operators a patch has.</summary>
 	public const int MaxOperators = 16;
 
+	/// <summary>The most operators a patch has heard, counting one heard twice as two.</summary>
+	public const int MaxOutputs = 32;
+
 	/// <summary>Its name, for messages and lists.</summary>
 	public string Name { get; init; } = "";
 
@@ -27,6 +30,12 @@ public sealed record Patch
 
 	/// <summary>The operators heard, and how loud.</summary>
 	public OutputTap[] Outputs { get; init; } = [];
+
+	/// <summary>
+	/// Whether any heard operator sits off the middle (<see cref="OutputTap.Pan"/>): the voice is then two channels from
+	/// its operators on, each through the filter and the drive, which costs a little more than one.
+	/// </summary>
+	public bool Wide { get; init; }
 
 	/// <summary>The filter after the operators, or none.</summary>
 	public FilterSpec? Filter { get; init; }
@@ -46,6 +55,9 @@ public sealed record Patch
 	/// <summary>The share sent to the chip's echo.</summary>
 	public float SendEcho { get; init; }
 
+	/// <summary>The share sent to the chip's key (<see cref="ChipSend.Key"/>), which keyed effects listen to and nothing hears.</summary>
+	public float SendKey { get; init; }
+
 	/// <summary>The vibrato's rate, in hertz.</summary>
 	public float VibratoHz { get; init; }
 
@@ -54,6 +66,12 @@ public sealed record Patch
 
 	/// <summary>How long into a note before the vibrato starts, in seconds.</summary>
 	public float VibratoDelaySeconds { get; init; }
+
+	/// <summary>The tremolo's rate, in hertz: the voice's level swaying, as a vibraphone's motor or an amplifier's tremolo does it.</summary>
+	public float TremoloHz { get; init; }
+
+	/// <summary>How far the tremolo dips the level, 0 (not at all) to 1 (to silence).</summary>
+	public float TremoloDepth { get; init; }
 
 	/// <summary>How far above its pitch a note starts, in semitones, falling to it: a drum's thump.</summary>
 	public float PitchDropSemitones { get; init; }
