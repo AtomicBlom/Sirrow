@@ -54,8 +54,15 @@ public sealed class Strum : Part
 		for (var i = 0; i < _pattern.Length; i++)
 		{
 			var c = _pattern[i];
-			if (c is ' ' or '|')
+			if (c == ' ')
 				continue;
+			// A bar line marks where a bar ends: one that falls inside a bar is a miscount
+			if (c == '|')
+			{
+				if (steps % perBar != 0)
+					throw Notation.BarLength("Strum", _pattern, meter, _step, steps / perBar + 1, steps % perBar, i + 1);
+				continue;
+			}
 			if (c is not ('D' or 'U' or 'd' or 'u' or 'x' or '.' or '_'))
 				throw new NotationException(
 					$"Strum \"{_pattern}\": '{c}' isn't D, U, d, u, x, . or _ (column {i + 1})", _pattern, steps / perBar + 1, i + 1);

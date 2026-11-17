@@ -136,4 +136,7 @@ public class ReverbTests
 	[Test]
 	public void It_allocates_nothing_once_running() =>
 		AllocatedWhileRunning(Prepared(new Reverb())).ShouldBe(0);
+
+	[Test]
+	public void A_size_outside_its_range_is_refused() => Should.Throw<ArgumentOutOfRangeException>(() => new Reverb(3f));
 }

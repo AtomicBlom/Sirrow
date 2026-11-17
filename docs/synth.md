@@ -341,7 +341,11 @@ steadily does nearly all it will do in its first few steps: from 100 Hz to 6.4 k
 order, each reading the blocks of those before. `Build` checks the rest too, and throws a `PatchException` naming the
 patch: at most 16 operators; at least one heard; modulators and feedback on a `Sine` only, drivers on a `String`, a
 `Tube` or `Modes` only; at most two strings and one tube a patch; a tube and modes driven; one to eight modes; a sample
-with samples.
+with samples. It checks every number as well, so the voice never meets one it can't play: ratios, a filter's cutoff and
+Q, a string's and a mode's decay above 0; levels, detune and feedback finite; times and sends 0 or more; velocity,
+sustain, damping, drive and a tremolo's depth 0 to 1; a pick 0.02 to 0.5; a pan -1 to 1; a pitch drop over some time.
+A `Patch` is made only by `Patch.Build`. A recording is checked where it enters a chip (a `SampleSet` or a `DrumKit`):
+samples at a rate, and its loop inside them.
 
 **A pluck is a shape, not noise.** A string with no drivers starts from one period of what a plucked string is: a
 triangle with its peak at `pick` (a share of the string's length from the bridge, 0.02 to 0.5; a fifth by default),

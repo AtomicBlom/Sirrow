@@ -9,10 +9,18 @@ public sealed class SampleSet
 	private readonly SampleZone[] _zones;
 
 	/// <summary>A set of <paramref name="zones"/>, in the order alternates are taken.</summary>
+	/// <exception cref="ArgumentException">No zones, or a zone whose recording the chip can't play (no samples, no rate, a loop outside it).</exception>
 	public SampleSet(params SampleZone[] zones)
 	{
 		ArgumentNullException.ThrowIfNull(zones);
+		if (zones.Length == 0)
+			throw new ArgumentException("A sample set has at least one zone.", nameof(zones));
 		_zones = [.. zones];
+		for (var z = 0; z < _zones.Length; z++)
+		{
+			ArgumentNullException.ThrowIfNull(_zones[z], nameof(zones));
+			_zones[z].Data.Check($"Zone {z}");
+		}
 	}
 
 	/// <summary>The zones, in the order given.</summary>

@@ -62,4 +62,24 @@ public class SongCompileTests
 		inD.Placements[0].Events.Select(e => e.Note - 2).ShouldBe(inC.Placements[0].Events.Select(e => e.Note));
 		inD.Placements[1].Events.Select(e => (e.Tick, e.Piece)).ShouldBe(inC.Placements[1].Events.Select(e => (e.Tick, e.Piece)));
 	}
+
+	[Test]
+	public void A_tempo_of_zero_is_refused()
+	{
+		var song = new Song("still") { Tempo = 0f };
+		song.Section("a", 1).Play(song.Track("tone", ChipRig.Tone), Line.Quarters("1 - - -"));
+		Should.Throw<InvalidOperationException>(() => CompiledSong.Compile(song, song.Scale)).Message.ShouldContain("tempo");
+	}
+
+	[Test]
+	public void A_condition_nested_deeper_than_the_sequencer_holds_is_refused()
+	{
+		var cue = new Cue("c");
+		Condition deep = cue.Above(0.5f);
+		for (var i = 0; i < CompiledSong.ConditionDepth; i++)
+			deep = cue.Above(0.1f * (i % 9)) & deep;
+		var song = new Song("deep");
+		song.Section("a", 1).Play(song.Track("tone", ChipRig.Tone), Line.Quarters("1 - - -")).When(deep);
+		Should.Throw<InvalidOperationException>(() => CompiledSong.Compile(song, song.Scale)).Message.ShouldContain("deeper");
+	}
 }

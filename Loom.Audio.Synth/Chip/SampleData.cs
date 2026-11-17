@@ -9,14 +9,27 @@ namespace Loom.Audio.Synth.Chip;
 /// <param name="SampleRate">Their rate, in frames per second.</param>
 public sealed record SampleData(float[] Samples, int SampleRate)
 {
-	/// <summary>The first frame of the loop, or -1 for a recording that plays once to its end.</summary>
-	public int LoopStart { get; init; } = -1;
+	/// <summary>The first frame of the loop, or -1 for a recording that plays once to its end. Set by <see cref="Looped"/>.</summary>
+	public int LoopStart { get; private init; } = -1;
 
-	/// <summary>The frame after the loop's last: reaching it, the playing goes back to <see cref="LoopStart"/>.</summary>
-	public int LoopEnd { get; init; }
+	/// <summary>The frame after the loop's last: reaching it, the playing goes back to <see cref="LoopStart"/>. Set by <see cref="Looped"/>.</summary>
+	public int LoopEnd { get; private init; }
 
 	/// <summary>Whether it has a loop.</summary>
 	public bool IsLooped => LoopStart >= 0 && LoopEnd > LoopStart;
+
+	// Whether the voice can play it: samples at a rate, and a loop (if any) inside them, at least two frames long. Checked
+	// where a recording enters a chip (a SampleSet, a DrumKit), since a copy made with `with` skips Looped's checks
+	internal void Check(string owner)
+	{
+		if (Samples is null || Samples.Length == 0)
+			throw new ArgumentException($"{owner}: a recording has no samples.");
+		if (SampleRate <= 0)
+			throw new ArgumentException($"{owner}: a recording's rate is {SampleRate}, and must be more than 0.");
+		if (LoopStart >= 0 && (LoopEnd < LoopStart + 2 || LoopEnd > Samples.Length))
+			throw new ArgumentException(
+				$"{owner}: a recording's loop runs from {LoopStart} to {LoopEnd}, which isn't two frames or more inside its {Samples.Length}.");
+	}
 
 	/// <summary>Decoded audio as a sample: stereo averaged to mono.</summary>
 	public static SampleData From(AudioData data)

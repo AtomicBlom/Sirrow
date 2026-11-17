@@ -54,7 +54,7 @@ internal sealed class MusicSource : AudioSource
 	private int _pendingCount;
 	private long _nextPending = long.MaxValue;
 
-	private readonly bool[] _stack = new bool[16];
+	private readonly bool[] _stack = new bool[CompiledSong.ConditionDepth];
 
 	// Published for the game thread
 	private volatile int _publishedSection;

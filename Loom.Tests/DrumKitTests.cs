@@ -103,4 +103,14 @@ public class DrumKitTests
 		Refused("""{ "name": "x", "pieces": [ { "piece": "kick", "layers": [ { "upTo": 1, "takes": [] } ] } ] }""");
 		Refused("""{ "name": "x", "pieces": [ { "piece": "kick", "layers": [ { "upTo": 0.8, "takes": ["a.wav"] }, { "upTo": 0.5, "takes": ["a.wav"] } ] } ] }""", "a.wav");
 	}
+
+	[Test]
+	public void A_layer_with_no_takes_is_refused() =>
+		Should.Throw<ArgumentException>(() => new DrumKit("bad", new DrumKitPiece(Kit.Snare,
+			[new DrumLayer(0.5f, [ChipRig.SineSample(500, 0.1)]), new DrumLayer(1f, [])]))).Message.ShouldContain("no takes");
+
+	[Test]
+	public void Layers_not_rising_in_velocity_are_refused() =>
+		Should.Throw<ArgumentException>(() => new DrumKit("bad", new DrumKitPiece(Kit.Snare,
+			[new DrumLayer(1f, [ChipRig.SineSample(500, 0.1)]), new DrumLayer(0.5f, [ChipRig.SineSample(600, 0.1)])]))).Message.ShouldContain("softest first");
 }

@@ -52,8 +52,15 @@ public sealed class Beat : Part
 			for (var i = 0; i < pattern.Length; i++)
 			{
 				var c = pattern[i];
-				if (c is ' ' or '|')
+				if (c == ' ')
 					continue;
+				// A bar line marks where a bar ends: one that falls inside a bar is a miscount
+				if (c == '|')
+				{
+					if (steps % perBar != 0)
+						throw Notation.BarLength("Beat", pattern, meter, _step, steps / perBar + 1, steps % perBar, i + 1);
+					continue;
+				}
 				var velocity = c switch
 				{
 					'x' => 0.75f,

@@ -31,12 +31,38 @@ internal sealed class CompiledSong
 
 	public int SlotOf(CueBase cue) => Array.IndexOf(Cues, cue);
 
+	// The most values a condition's postfix steps hold at once: the sequencer's stack, made once
+	public const int ConditionDepth = 16;
+
+	// How many values a program's steps hold at once, at their most
+	private static int Depth(List<ConditionOp> program)
+	{
+		int top = 0, most = 0;
+		foreach (var op in program)
+		{
+			top += op.Kind switch
+			{
+				ConditionOpKind.And or ConditionOpKind.Or => -1,
+				ConditionOpKind.Not => 0,
+				_ => 1,
+			};
+			most = Math.Max(most, top);
+		}
+		return most;
+	}
+
 	public static CompiledSong Compile(Song song, Scale scale)
 	{
 		ArgumentNullException.ThrowIfNull(song);
 		ArgumentNullException.ThrowIfNull(scale);
 		if (song.Sections.Count == 0)
 			throw new InvalidOperationException($"Song '{song.Name}' has no sections.");
+		if (!float.IsFinite(song.Tempo) || song.Tempo <= 0f)
+			throw new InvalidOperationException($"Song '{song.Name}' has a tempo of {song.Tempo}: a tempo is more than 0 beats a minute.");
+		if (song.Voices <= 0)
+			throw new InvalidOperationException($"Song '{song.Name}' has {song.Voices} voices: a song needs at least one.");
+		if (song.Meter.Beats <= 0 || song.Meter.Unit <= 0)
+			throw new InvalidOperationException($"Song '{song.Name}' has a meter of {song.Meter}: both its numbers are more than 0.");
 		var ticksPerBar = song.Meter.TicksPerBar;
 		var cues = song.Cues.ToArray();
 		int Slot(CueBase cue) => Array.IndexOf(cues, cue);
@@ -95,7 +121,12 @@ internal sealed class CompiledSong
 
 				var program = new List<ConditionOp>();
 				if (placement.Condition is { } condition)
+				{
 					Emit(condition, program, Slot, ref latches);
+					if (Depth(program) > ConditionDepth)
+						throw new InvalidOperationException(
+							$"Song '{song.Name}': the condition on '{placement.Name}' nests deeper than {ConditionDepth}: write it flatter.");
+				}
 				var levelSlot = placement.LevelCue is { } level ? Slot(level) : -1;
 				var gainSlot = -1;
 				if (levelSlot >= 0)

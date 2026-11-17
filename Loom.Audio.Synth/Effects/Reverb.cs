@@ -43,8 +43,14 @@ public sealed class Reverb : AudioEffect
 	private DelayLine _pre = null!;
 	private int _untilSway;
 
-	/// <summary>A reverb whose room is <paramref name="size"/> times the default's, 0.5 to 2: its lines' lengths.</summary>
-	public Reverb(float size = 1f) => _size = Math.Clamp(size, 0.5f, 2f);
+	/// <summary>A room whose lines are scaled by <paramref name="size"/>, 0.5 to 2.</summary>
+	/// <exception cref="ArgumentOutOfRangeException">A size outside 0.5 to 2.</exception>
+	public Reverb(float size = 1f)
+	{
+		if (!float.IsFinite(size) || size < 0.5f || size > 2f)
+			throw new ArgumentOutOfRangeException(nameof(size), size, "A room's size is 0.5 to 2.");
+		_size = size;
+	}
 
 	/// <summary>How long the tail takes to fall 60 dB, in seconds, 0.1 to 20. Default 1.8, eased over 0.1 s.</summary>
 	public SmoothedParameter DecaySeconds { get; } = new(1.8f, 0.1f);

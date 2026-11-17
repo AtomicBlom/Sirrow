@@ -107,4 +107,16 @@ public class SampleLoopTests
 		looped.IsLooped.ShouldBeTrue();
 		looped.Samples.ShouldNotBeSameAs(recording.Samples);
 	}
+
+	[Test]
+	public void A_recording_cut_short_under_its_loop_is_refused_by_a_set()
+	{
+		var looped = ChipRig.SineSample(440, 0.5).Looped(1000, 9000);
+		var cut = looped with { Samples = looped.Samples[..4000] };
+
+		Should.Throw<ArgumentException>(() => new SampleSet(new SampleZone(cut))).Message.ShouldContain("loop");
+	}
+
+	[Test]
+	public void An_empty_set_is_refused() => Should.Throw<ArgumentException>(() => new SampleSet());
 }

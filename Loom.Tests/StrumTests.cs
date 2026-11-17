@@ -42,4 +42,8 @@ public class StrumTests
 		up.Select(e => e.Note).ShouldBe([64f, 59f, 55f, 52f]);
 		up.ShouldAllBe(e => e.Tick + e.Length == 2880);
 	}
+
+	[Test]
+	public void A_bar_line_inside_a_bar_is_refused() =>
+		Should.Throw<NotationException>(() => Strum.Eighths("D.DU .UD | U.DU .UDU").Parse(Meter.FourFour));
 }

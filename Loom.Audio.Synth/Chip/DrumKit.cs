@@ -13,6 +13,10 @@ public sealed class DrumKit
 	private readonly Dictionary<string, int> _index = new(StringComparer.Ordinal);
 
 	/// <summary>A kit named <paramref name="name"/> of <paramref name="pieces"/>; a piece named twice is the later one.</summary>
+	/// <exception cref="ArgumentException">
+	/// A piece with neither layers nor a patch, a layer with no takes, layers not rising in velocity, a take the chip can't
+	/// play, or a gain or pan out of range.
+	/// </exception>
 	public DrumKit(string name, params DrumKitPiece[] pieces)
 	{
 		ArgumentNullException.ThrowIfNull(name);
@@ -22,8 +26,24 @@ public sealed class DrumKit
 		for (var i = 0; i < _pieces.Length; i++)
 		{
 			var piece = _pieces[i];
+			void Fail(string message) => throw new ArgumentException($"Kit '{name}': piece '{piece.Piece.Id}' {message}", nameof(pieces));
+
 			if (piece.Patch is null && piece.Layers.Length == 0)
-				throw new ArgumentException($"Kit '{name}': piece '{piece.Piece.Id}' has neither layers nor a patch.", nameof(pieces));
+				Fail("has neither layers nor a patch.");
+			if (!float.IsFinite(piece.GainDb))
+				Fail($"has a gain of {piece.GainDb}.");
+			if (!float.IsFinite(piece.Pan) || piece.Pan < -1f || piece.Pan > 1f)
+				Fail($"is panned to {piece.Pan}, and a pan runs from -1 (left) to 1 (right).");
+			for (var l = 0; l < piece.Layers.Length; l++)
+			{
+				var layer = piece.Layers[l];
+				if (layer.Takes.Length == 0)
+					Fail($"has a layer {l + 1} with no takes.");
+				if (l > 0 && !(layer.UpToVelocity > piece.Layers[l - 1].UpToVelocity))
+					Fail($"has a layer {l + 1} up to {layer.UpToVelocity}, not above the layer before it: layers go softest first.");
+				foreach (var take in layer.Takes)
+					take.Check($"Kit '{name}', piece '{piece.Piece.Id}', layer {l + 1}");
+			}
 			_index[piece.Piece.Id] = i;
 		}
 	}

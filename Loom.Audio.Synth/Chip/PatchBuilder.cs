@@ -138,6 +138,7 @@ public sealed class PatchBuilder
 		if (_outputs.Count > Patch.MaxOutputs)
 			Fail($"{_outputs.Count} operators are heard, and a patch hears at most {Patch.MaxOutputs}.");
 		var wide = false;
+		CheckSettings();
 
 		var strings = 0;
 		var tubes = 0;
@@ -145,6 +146,7 @@ public sealed class PatchBuilder
 		foreach (var op in _operators)
 		{
 			var spec = op.Spec;
+			CheckNumbers(op);
 			if (op.Modulators.Count > 0 && spec.Kind != OperatorKind.Sine)
 				Fail($"operator {op.Index} is a {spec.Kind}, and only a Sine is modulated.");
 			if (spec.Feedback != 0f && spec.Kind != OperatorKind.Sine)
@@ -199,10 +201,111 @@ public sealed class PatchBuilder
 				Fail($"macro {macro.Id} is not one of an instrument's {Chip.Macro.Count} (0 to {Chip.Macro.Count - 1}).");
 			if (target == MacroTarget.OperatorLevel && op is null)
 				Fail($"macro {macro.Id} turns an operator's level, and names no operator.");
+			Finite(from, $"macro {macro.Id}'s value at 0");
+			Finite(to, $"macro {macro.Id}'s value at 1");
 			macros[i] = new MacroSpec(macro, target, from, to, op is null ? -1 : Mine(op, "turned by a macro"));
 		}
 
 		return _settings with { Operators = operators, Outputs = outputs, Macros = macros, Wide = wide };
+	}
+
+	// An operator's numbers, checked once here so the voice never meets one it can't play: a ratio of zero or a NaN level
+	// would put NaN into every effect after it for good
+	private void CheckNumbers(Op op)
+	{
+		var spec = op.Spec;
+		var at = $"operator {op.Index} ({spec.Kind})";
+		Positive(spec.Ratio, $"{at}'s ratio");
+		AtLeastZero(spec.FixedHz, $"{at}'s fixed frequency");
+		Finite(spec.DetuneCents, $"{at}'s detune");
+		Finite(spec.StartPhase, $"{at}'s start phase");
+		Finite(spec.Level, $"{at}'s level");
+		Between(spec.Velocity, 0f, 1f, $"{at}'s velocity");
+		Finite(spec.Feedback, $"{at}'s feedback");
+		Finite(spec.KeyLevelDb, $"{at}'s key level");
+		Between(spec.KeyDecay, 0f, 0.95f, $"{at}'s key decay");
+		if (spec.Kind is not (OperatorKind.String or OperatorKind.Tube or OperatorKind.Modes))
+			CheckEnvelope(spec.Envelope, $"{at}'s envelope");
+		if (spec.Kind == OperatorKind.Wave && !(spec.PulseWidth > 0f && spec.PulseWidth < 1f))
+			Fail($"{at}'s pulse width is {spec.PulseWidth}, and a pulse width is between 0 and 1.");
+		if (spec.Kind == OperatorKind.String)
+		{
+			Positive(spec.DecaySeconds, $"{at}'s decay");
+			Between(spec.Damping, 0f, 1f, $"{at}'s damping");
+			Between(spec.Pick, 0.02f, 0.5f, $"{at}'s pick");
+		}
+		if (spec.Kind == OperatorKind.Modes)
+			for (var m = 0; m < spec.Modes.Length; m++)
+			{
+				var mode = spec.Modes[m];
+				if (mode.Hz == 0f)
+					Positive(mode.Ratio, $"{at}'s mode {m} ratio");
+				AtLeastZero(mode.Hz, $"{at}'s mode {m} frequency");
+				Positive(mode.DecaySeconds, $"{at}'s mode {m} decay");
+				Finite(mode.Level, $"{at}'s mode {m} level");
+			}
+	}
+
+	// What the voice does after the operators
+	private void CheckSettings()
+	{
+		var p = _settings;
+		if (p.Filter is { } filter)
+		{
+			Positive(filter.CutoffHz, "the filter's cutoff");
+			Positive(filter.Q, "the filter's Q");
+			Finite(filter.KeyTrack, "the filter's key tracking");
+			Finite(filter.Velocity, "the filter's velocity");
+			Finite(filter.EnvelopeOctaves, "the filter's envelope octaves");
+			CheckEnvelope(filter.Envelope, "the filter's envelope");
+		}
+		Between(p.Drive, 0f, 1f, "the drive");
+		Finite(p.GainDb, "the gain");
+		Between(p.Pan, -1f, 1f, "the pan");
+		AtLeastZero(p.SendSpace, "the send to the space");
+		AtLeastZero(p.SendEcho, "the send to the echo");
+		AtLeastZero(p.SendKey, "the send to the key");
+		AtLeastZero(p.VibratoHz, "the vibrato's rate");
+		Finite(p.VibratoSemitones, "the vibrato's depth");
+		AtLeastZero(p.VibratoDelaySeconds, "the vibrato's delay");
+		AtLeastZero(p.TremoloHz, "the tremolo's rate");
+		Between(p.TremoloDepth, 0f, 1f, "the tremolo's depth");
+		Finite(p.PitchDropSemitones, "the pitch drop");
+		if (p.PitchDropSemitones != 0f)
+			Positive(p.PitchDropSeconds, "the pitch drop's time");
+		AtLeastZero(p.GlideSeconds, "the glide");
+	}
+
+	private void CheckEnvelope(EnvelopeShape envelope, string what)
+	{
+		AtLeastZero(envelope.Attack, $"{what}'s attack");
+		AtLeastZero(envelope.Decay, $"{what}'s decay");
+		Between(envelope.Sustain, 0f, 1f, $"{what}'s sustain");
+		AtLeastZero(envelope.Release, $"{what}'s release");
+	}
+
+	private void Finite(float value, string what)
+	{
+		if (!float.IsFinite(value))
+			Fail($"{what} is {value}, and must be a finite number.");
+	}
+
+	private void Positive(float value, string what)
+	{
+		if (!float.IsFinite(value) || value <= 0f)
+			Fail($"{what} is {value}, and must be more than 0.");
+	}
+
+	private void AtLeastZero(float value, string what)
+	{
+		if (!float.IsFinite(value) || value < 0f)
+			Fail($"{what} is {value}, and must be 0 or more.");
+	}
+
+	private void Between(float value, float low, float high, string what)
+	{
+		if (!float.IsFinite(value) || value < low || value > high)
+			Fail($"{what} is {value}, and runs from {low} to {high}.");
 	}
 
 	// The index of an operator feeding another: one of this builder's, made before it

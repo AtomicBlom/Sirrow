@@ -30,4 +30,15 @@ public class BeatTests
 		Should.Throw<NotationException>(() => Beat.Eighths((Kit.Kick, "x... x..."), (Kit.Snare, "..x. ..x. ..x. ..x.")).Parse(Meter.FourFour));
 		Should.Throw<NotationException>(() => Beat.Eighths((Kit.Kick, "x... x.")).Parse(Meter.FourFour));
 	}
+
+	[Test]
+	public void A_bar_line_inside_a_bar_is_refused()
+	{
+		var thrown = Should.Throw<NotationException>(() => Beat.Eighths((Kit.Kick, "x... x.x.x | x.. x...")).Parse(Meter.FourFour));
+		thrown.Message.ShouldContain("bar 2");
+	}
+
+	[Test]
+	public void Bar_lines_on_the_bars_are_read() =>
+		Beat.Eighths((Kit.Kick, "x... x.x. | x... x...")).Parse(Meter.FourFour).LengthTicks.ShouldBe(2 * Meter.FourFour.TicksPerBar);
 }

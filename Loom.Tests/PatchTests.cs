@@ -75,7 +75,8 @@ public class PatchTests
 	public void A_tube_with_no_driver_or_a_sample_with_no_samples_is_refused()
 	{
 		ShouldRefuse(p => p.Out(p.Tube()));
-		ShouldRefuse(p => p.Out(p.Sample(new SampleSet())));
+		// A set with no zones is refused as it is made, before a patch can take it
+		Should.Throw<ArgumentException>(() => new SampleSet());
 		ShouldRefuse(p => p.Out(p.Sample(null!)));
 	}
 
@@ -108,4 +109,45 @@ public class PatchTests
 
 		patch.Outputs.ShouldBe([new OutputTap(0, 1f), new OutputTap(1, 0.3f)]);
 	}
+
+	[Test]
+	public void A_tube_at_a_ratio_of_zero_is_refused() => ShouldRefuse(p =>
+	{
+		var breath = p.Level(Env.Gate);
+		p.Out(p.Tube(ratio: 0f).DrivenBy(breath));
+	});
+
+	[Test]
+	public void A_level_that_isnt_a_number_is_refused() => ShouldRefuse(p => p.Out(p.Sine(1f, Env.Gate, level: float.NaN)));
+
+	[Test]
+	public void A_sustain_above_one_is_refused() => ShouldRefuse(p => p.Out(p.Sine(1f, Env.Adsr(0.01f, 0.1f, 1.5f, 0.1f))));
+
+	[Test]
+	public void A_drive_past_one_is_refused() => ShouldRefuse(p =>
+	{
+		p.Out(p.Sine(1f, Env.Gate));
+		p.Drive(2f);
+	});
+
+	[Test]
+	public void A_filter_at_no_frequency_is_refused() => ShouldRefuse(p =>
+	{
+		p.Out(p.Sine(1f, Env.Gate));
+		p.Filter(Filter.LowPass(0f));
+	});
+
+	[Test]
+	public void A_pitch_drop_over_no_time_is_refused() => ShouldRefuse(p =>
+	{
+		p.Out(p.Sine(1f, Env.Decay(0.2f)));
+		p.PitchDrop(12f, 0f);
+	});
+
+	[Test]
+	public void A_mode_that_never_rings_down_is_refused() => ShouldRefuse(p =>
+	{
+		var knock = p.Sine(1f, Env.Decay(0.005f)).Fixed(2000f);
+		p.Out(p.Modes(Mode.At(1f, 0f)).DrivenBy(knock));
+	});
 }
