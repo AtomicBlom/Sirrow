@@ -108,6 +108,7 @@ public sealed class PatchSpec
 	private void CopyFrom(PatchSpec other)
 	{
 		Name = other.Name;
+		About = other.About;
 		Filter = other.Filter;
 		Drive = other.Drive;
 		GainDb = other.GainDb;
@@ -171,4 +172,7 @@ public sealed class PatchSpec
 		(uint)index < (uint)made.Count
 			? made[index]
 			: throw new PatchException(Name, $"operator {index} is {how}, and the patch has {made.Count} operators.");
+
+	/// <summary>What the patch is, in words, as its file and its code's comment say it; empty when nothing does.</summary>
+	public string About { get; set; } = "";
 }

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!--
+		The music generator: an incremental source generator that turns a project's music files (AdditionalFiles ending
+		.patch.json and .song.json, Loom.Audio.Synth's PatchFile and SongFile formats) into the C# a person would have
+		written, so a game builds and runs its music as code: NativeAOT and the browser included. It can't load Loom, so it
+		reads the JSON itself and writes text, looking up in the compilation only what the text alone can't say (an
+		effect's argument types, a choice cue's enum). A build-time analyzer, never a runtime dependency: netstandard2.0,
+		its assembly only. docs/synth.md, "Music as data", says how a project uses it.
+	-->
+	<PropertyGroup>
+		<TargetFramework>netstandard2.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<LangVersion>latest</LangVersion>
+		<IsRoslynComponent>true</IsRoslynComponent>
+		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+		<IncludeBuildOutput>false</IncludeBuildOutput>
+		<IsPackable>false</IsPackable>
+		<!-- Release-tracking (RS2008) is for shipped analyzer packages; this generator is a private build-time component. -->
+		<NoWarn>$(NoWarn);RS2008</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="Loom.Tests" />
+	</ItemGroup>
+
+</Project>

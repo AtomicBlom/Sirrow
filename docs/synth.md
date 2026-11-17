@@ -800,7 +800,84 @@ The mutes, solos, gains and forced placements carry over by name.
 
 ---
 
-## 11. Not built yet
+## 11. Music as data
+
+A patch or a song can be a file rather than code: JSON a tool writes and reads back exactly, which Loom's music
+generator turns into the C# a person would have written as the project builds. The game builds and runs the C#, so
+NativeAOT and the browser are as they were; the workbench edits the files.
+
+**`loom-patch/1`** (`PatchFile`): a `PatchSpec` as JSON. Each operator is named and routed by name, and only what differs
+from a new spec's defaults is written, so `Write` then `Read` gives back the same spec, float for float.
+
+```json
+{
+  "format": "loom-patch/1",
+  "name": "electric-piano",
+  "about": "An electric piano: a tine's bell over a tone bar that barks when struck hard",
+  "operators": [
+    { "name": "strike", "kind": "sine", "ratio": 14, "envelope": "decay 0.06", "velocity": 0.8, "keyLevel": -4 },
+    { "name": "tine", "kind": "sine", "envelope": "adsr 0.002 2.2 0 0.2", "level": 0.35, "modulatedBy": [{ "op": "strike", "index": 0.7 }] }
+  ],
+  "out": [{ "op": "tine" }],
+  "sends": { "space": 0.2 },
+  "tremolo": { "rate": 4.5, "depth": 0.15 }
+}
+```
+
+A kind is `sine`, `saw`, `pulse`, `noise`, `level`, `string`, `tube` or `modes`; a sampled operator can't be data. An
+envelope is `"gate"`, `"decay s"` or `"adsr a d s r"`; a mode `"at ratio seconds [level]"` or `"fixed hz seconds
+[level]"`; a macro its number. `PatchSpec.About` carries `"about"`.
+
+**`loom-song/1`** (`SongFile`): a song, its patches, kits, cues and macros named, written a part to a line:
+`SongFile.Write(song, names)` from a built song (`SongNames` says what the catalog calls each patch, kit and macro, and
+gives a group's effects, which a built song can't), `ToJson` to add what a built song can't say before writing (its
+conductor, its hooks), and `Load(json, bindings)` to build one at run time (`SongBindings` binds the names). Its pieces:
+
+| Key | What it says |
+|---|---|
+| `tempo`, `meter`, `scale`, `voices` | The song's settings, defaults left out: `"scale": "F# minor"` |
+| `effects` | The space, echo and master sends' effects, if not the defaults |
+| `groups` | `{ "name", "effects": [{ "fx": "compressor", "thresholdDb": -18, "ratio": 3 }] }`: an effect is one of `Fx`'s factories, its arguments by their parameter names |
+| `tracks` | `{ "name", "patch" or "kit", "group", "octave", "level", "pan", "humanise": { "ms", "velocity" }, "swing": { "ratio", "step" }, "macros": [{ "macro", "follow", "from", "to" } or { "macro", "set" }] }` |
+| `sections` | `{ "name", "about", "bars", "chords", "parts": [...], "sweeps": [{ "track", "macro", "from", "to" }] }` |
+| a part | `{ "track", "name", ` a line `"line": "eighths", "notes", "overChords", "octave"`, a beat `"beat", "rows": { "kick": "x..." }`, a strum `"strum", "notes", "voicing", "spread"`, or code `"part": { "code": "Name" }`; then `"when"`, `"level"` (a cue), `"onPhrase"`, `"endWith"` (a part) `}`, or a whole placement as code `{ "track", "code": "Name" }` |
+| `order` or `conduct` | The sections in turn, or rules asked near each section's end: `[{ "when": "intensity > 0.7", "then": "open" }, { "then": "cruise" }]` |
+| `hooks` | `["OnBuilt"]`: code of the game's own, run with the song and every section once the rest is built |
+
+A condition (`ConditionText`) is `"intensity > 0.6"`, `"intensity < 0.2"` or `"biome is Forest"`, joined by `and`, `or`,
+`not` and brackets.
+
+**The generator** (`Loom.Audio.Music.Generator`) reads a project's `AdditionalFiles` ending `.patch.json` and
+`.song.json`. Every patch file becomes a property of one `static partial class Patches` in the project's root namespace,
+named for its file (`electric-piano.patch.json` is `Patches.ElectricPiano`), written as `PatchCode` writes it. Every song
+file becomes `static partial class OpenRoad` (from `open-road.song.json`) with `public static Song Build()`, in the
+namespace of its folder. A name in a song is a member of the project's classes: `Patches.UprightBass`, `Kits.General`,
+`Cues.Intensity`, `Macros.Bright`; a choice cue's enum and an effect's argument types come from the compilation. What a
+file says that can't be code is an error, `LOOMMUSIC001`, at its line in the file.
+
+What a file can't say is code, declared by the generated class and written in the game's own half of it, so a missing or
+renamed member fails the build: a part (`private static partial Part Name();`), a placement (`private static partial
+Placement Name(Section section, SongTrack track);`), a patch (`public static partial Patch Name { get; }`), a hook
+(`static partial void OnBuilt(Song song, Section verse, Section chorus);`).
+
+```xml
+<ItemGroup>
+  <AdditionalFiles Include="Patches\*.patch.json;Songs\*.song.json" />
+  <CompilerVisibleProperty Include="RootNamespace" />
+  <CompilerVisibleProperty Include="ProjectDir" />
+  <ProjectReference Include="..\Loom\Loom.Audio.Music.Generator\Loom.Audio.Music.Generator.csproj"
+                    OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+</ItemGroup>
+```
+
+The classes the names are found in can be others (`LoomMusicPatches`, `LoomMusicKits`, `LoomMusicCues`,
+`LoomMusicMacros`, each made visible the same way). `MusicGeneratorTests` checks that the generated patch and song build
+what `PatchFile.Load` and `SongFile.Load` build from the same files; RubberTrack moved its 48 patches and ten songs onto
+the files and every render stayed bit-identical.
+
+---
+
+## 12. Not built yet
 
 - **Music in the browser costs too much to play.** There the mix runs on the frame thread, and a song of eight tracks
   costs several milliseconds of each frame; rendering it ahead on a worker (`AudioOptions.BrowserThread`) has hung the

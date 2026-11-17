@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Loom.Audio.Synth.Dsp;
 
@@ -42,165 +43,118 @@ public static class PatchFile
 		ArgumentNullException.ThrowIfNull(spec);
 		var ops = spec.Operators;
 		var vars = PatchCode.OperatorNames(ops, names);
-		using var stream = new MemoryStream();
-		using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+		var file = new JsonObject { ["format"] = Format, ["name"] = spec.Name };
+		if (spec.About.Length > 0)
+			file["about"] = spec.About;
+		file["operators"] = new JsonArray([.. ops.Select((op, i) => OperatorJson(op, vars, vars[i]))]);
+		file["out"] = new JsonArray([.. spec.Outputs.Select(tap =>
 		{
-			json.WriteStartObject();
-			json.WriteString("format", Format);
-			json.WriteString("name", spec.Name);
-			json.WriteStartArray("operators");
-			for (var i = 0; i < ops.Count; i++)
-				WriteOperator(json, ops[i], vars, vars[i]);
-			json.WriteEndArray();
-			json.WriteStartArray("out");
-			foreach (var tap in spec.Outputs)
+			var json = new JsonObject { ["op"] = vars[tap.Operator] };
+			if (tap.Level != 1f)
+				json["level"] = tap.Level;
+			if (tap.Pan != 0f)
+				json["pan"] = tap.Pan;
+			return json;
+		})]);
+		if (spec.Filter is { } filter)
+		{
+			var json = new JsonObject { ["kind"] = Camel(filter.Kind.ToString()), ["cutoff"] = filter.CutoffHz };
+			if (filter.Q != 0.7f)
+				json["q"] = filter.Q;
+			Number(json, "keyTrack", filter.KeyTrack);
+			Number(json, "velocity", filter.Velocity);
+			if (filter.EnvelopeOctaves != 0f || filter.Envelope != default)
 			{
-				json.WriteStartObject();
-				json.WriteString("op", vars[tap.Operator]);
-				if (tap.Level != 1f)
-					json.WriteNumber("level", tap.Level);
-				if (tap.Pan != 0f)
-					json.WriteNumber("pan", tap.Pan);
-				json.WriteEndObject();
+				json["envelopeOctaves"] = filter.EnvelopeOctaves;
+				json["envelope"] = Envelope(filter.Envelope);
 			}
-			json.WriteEndArray();
-			if (spec.Filter is { } filter)
-			{
-				json.WriteStartObject("filter");
-				json.WriteString("kind", Camel(filter.Kind.ToString()));
-				json.WriteNumber("cutoff", filter.CutoffHz);
-				if (filter.Q != 0.7f)
-					json.WriteNumber("q", filter.Q);
-				if (filter.KeyTrack != 0f)
-					json.WriteNumber("keyTrack", filter.KeyTrack);
-				if (filter.Velocity != 0f)
-					json.WriteNumber("velocity", filter.Velocity);
-				if (filter.EnvelopeOctaves != 0f || filter.Envelope != default)
-				{
-					json.WriteNumber("envelopeOctaves", filter.EnvelopeOctaves);
-					json.WriteString("envelope", Envelope(filter.Envelope));
-				}
-				json.WriteEndObject();
-			}
-			Number(json, "drive", spec.Drive);
-			Number(json, "gain", spec.GainDb);
-			Number(json, "pan", spec.Pan);
-			if (spec.SendSpace != 0f || spec.SendEcho != 0f || spec.SendKey != 0f)
-			{
-				json.WriteStartObject("sends");
-				Number(json, "space", spec.SendSpace);
-				Number(json, "echo", spec.SendEcho);
-				Number(json, "key", spec.SendKey);
-				json.WriteEndObject();
-			}
-			if (spec.VibratoHz != 0f || spec.VibratoSemitones != 0f || spec.VibratoDelaySeconds != 0f)
-			{
-				json.WriteStartObject("vibrato");
-				json.WriteNumber("rate", spec.VibratoHz);
-				json.WriteNumber("depth", spec.VibratoSemitones);
-				Number(json, "delay", spec.VibratoDelaySeconds);
-				json.WriteEndObject();
-			}
-			if (spec.TremoloHz != 0f || spec.TremoloDepth != 0f)
-			{
-				json.WriteStartObject("tremolo");
-				json.WriteNumber("rate", spec.TremoloHz);
-				json.WriteNumber("depth", spec.TremoloDepth);
-				json.WriteEndObject();
-			}
-			if (spec.PitchDropSemitones != 0f || spec.PitchDropSeconds != 0f)
-			{
-				json.WriteStartObject("pitchDrop");
-				json.WriteNumber("semitones", spec.PitchDropSemitones);
-				json.WriteNumber("seconds", spec.PitchDropSeconds);
-				json.WriteEndObject();
-			}
-			if (spec.Mono)
-			{
-				json.WriteStartObject("mono");
-				Number(json, "glide", spec.GlideSeconds);
-				json.WriteEndObject();
-			}
-			if (spec.Macros.Count > 0)
-			{
-				json.WriteStartArray("macros");
-				foreach (var macro in spec.Macros)
-				{
-					json.WriteStartObject();
-					json.WriteNumber("macro", macro.Macro.Id);
-					json.WriteString("target", Camel(macro.Target.ToString()));
-					json.WriteNumber("from", macro.From);
-					json.WriteNumber("to", macro.To);
-					if (macro.Operator >= 0)
-						json.WriteString("op", vars[macro.Operator]);
-					json.WriteEndObject();
-				}
-				json.WriteEndArray();
-			}
-			json.WriteEndObject();
+			file["filter"] = json;
 		}
-		return Encoding.UTF8.GetString(stream.ToArray()) + "\n";
+		Number(file, "drive", spec.Drive);
+		Number(file, "gain", spec.GainDb);
+		Number(file, "pan", spec.Pan);
+		if (spec.SendSpace != 0f || spec.SendEcho != 0f || spec.SendKey != 0f)
+		{
+			var sends = new JsonObject();
+			Number(sends, "space", spec.SendSpace);
+			Number(sends, "echo", spec.SendEcho);
+			Number(sends, "key", spec.SendKey);
+			file["sends"] = sends;
+		}
+		if (spec.VibratoHz != 0f || spec.VibratoSemitones != 0f || spec.VibratoDelaySeconds != 0f)
+		{
+			var vibrato = new JsonObject { ["rate"] = spec.VibratoHz, ["depth"] = spec.VibratoSemitones };
+			Number(vibrato, "delay", spec.VibratoDelaySeconds);
+			file["vibrato"] = vibrato;
+		}
+		if (spec.TremoloHz != 0f || spec.TremoloDepth != 0f)
+			file["tremolo"] = new JsonObject { ["rate"] = spec.TremoloHz, ["depth"] = spec.TremoloDepth };
+		if (spec.PitchDropSemitones != 0f || spec.PitchDropSeconds != 0f)
+			file["pitchDrop"] = new JsonObject { ["semitones"] = spec.PitchDropSemitones, ["seconds"] = spec.PitchDropSeconds };
+		if (spec.Mono)
+		{
+			var mono = new JsonObject();
+			Number(mono, "glide", spec.GlideSeconds);
+			file["mono"] = mono;
+		}
+		if (spec.Macros.Count > 0)
+			file["macros"] = new JsonArray([.. spec.Macros.Select(macro =>
+			{
+				var json = new JsonObject
+				{
+					["macro"] = macro.Macro.Id,
+					["target"] = Camel(macro.Target.ToString()),
+					["from"] = macro.From,
+					["to"] = macro.To,
+				};
+				if (macro.Operator >= 0)
+					json["op"] = vars[macro.Operator];
+				return json;
+			})]);
+		return Music.JsonText.Write(file);
 	}
 
-	private static void WriteOperator(Utf8JsonWriter json, OperatorSpec op, string[] vars, string name)
+	private static JsonObject OperatorJson(OperatorSpec op, string[] vars, string name)
 	{
 		if (op.Kind == OperatorKind.Sample)
 			throw new NotSupportedException($"Operator '{name}' plays samples, which a patch file can't hold: keep the patch as code.");
-		json.WriteStartObject();
-		json.WriteString("name", name);
-		json.WriteString("kind", op.Kind == OperatorKind.Wave ? Camel(op.Waveform.ToString()) : Camel(op.Kind.ToString()));
+		var json = new JsonObject
+		{
+			["name"] = name,
+			["kind"] = op.Kind == OperatorKind.Wave ? Camel(op.Waveform.ToString()) : Camel(op.Kind.ToString()),
+		};
 		if (op.Ratio != Defaults.Ratio)
-			json.WriteNumber("ratio", op.Ratio);
+			json["ratio"] = op.Ratio;
 		Number(json, "fixed", op.FixedHz);
 		Number(json, "detune", op.DetuneCents);
 		Number(json, "phase", op.StartPhase);
 		if (op.Envelope != Defaults.Envelope)
-			json.WriteString("envelope", Envelope(op.Envelope));
+			json["envelope"] = Envelope(op.Envelope);
 		if (op.Level != Defaults.Level)
-			json.WriteNumber("level", op.Level);
+			json["level"] = op.Level;
 		Number(json, "velocity", op.Velocity);
 		Number(json, "feedback", op.Feedback);
 		if (op.PulseWidth != Defaults.PulseWidth)
-			json.WriteNumber("pulseWidth", op.PulseWidth);
+			json["pulseWidth"] = op.PulseWidth;
 		if (op.Pink)
-			json.WriteBoolean("pink", true);
+			json["pink"] = true;
 		if (op.OneShot)
-			json.WriteBoolean("oneShot", true);
+			json["oneShot"] = true;
 		if (op.DecaySeconds != Defaults.DecaySeconds)
-			json.WriteNumber("decaySeconds", op.DecaySeconds);
+			json["decaySeconds"] = op.DecaySeconds;
 		if (op.Damping != Defaults.Damping)
-			json.WriteNumber("damping", op.Damping);
+			json["damping"] = op.Damping;
 		if (op.Pick != Defaults.Pick)
-			json.WriteNumber("pick", op.Pick);
+			json["pick"] = op.Pick;
 		if (op.Modes.Length > 0)
-		{
-			json.WriteStartArray("modes");
-			foreach (var mode in op.Modes)
-				json.WriteStringValue(ModeText(mode));
-			json.WriteEndArray();
-		}
+			json["modes"] = new JsonArray([.. op.Modes.Select(m => (JsonNode)ModeText(m))]);
 		if (op.Modulators.Length > 0)
-		{
-			json.WriteStartArray("modulatedBy");
-			foreach (var m in op.Modulators)
-			{
-				json.WriteStartObject();
-				json.WriteString("op", vars[m.Operator]);
-				json.WriteNumber("index", m.Index);
-				json.WriteEndObject();
-			}
-			json.WriteEndArray();
-		}
+			json["modulatedBy"] = new JsonArray([.. op.Modulators.Select(m => new JsonObject { ["op"] = vars[m.Operator], ["index"] = m.Index })]);
 		if (op.Drivers.Length > 0)
-		{
-			json.WriteStartArray("drivenBy");
-			foreach (var d in op.Drivers)
-				json.WriteStringValue(vars[d]);
-			json.WriteEndArray();
-		}
+			json["drivenBy"] = new JsonArray([.. op.Drivers.Select(d => (JsonNode)vars[d])]);
 		Number(json, "keyLevel", op.KeyLevelDb);
 		Number(json, "keyDecay", op.KeyDecay);
-		json.WriteEndObject();
+		return json;
 	}
 
 	/// <summary>The patch a file holds.</summary>
@@ -226,7 +180,7 @@ public static class PatchFile
 		var name = String(root, "name") ?? throw new FormatException("A patch file has a \"name\".");
 		if (String(root, "code") is { } code)
 			throw new FormatException($"Patch '{name}' is code ({code}), not data: build it from its C#.");
-		var spec = new PatchSpec { Name = name };
+		var spec = new PatchSpec { Name = name, About = String(root, "about") ?? "" };
 		var given = new List<string>();
 		var index = new Dictionary<string, int>(StringComparer.Ordinal);
 		int Op(string? opName, string where) =>
@@ -379,10 +333,10 @@ public static class PatchFile
 			? value
 			: throw new FormatException($"Patch '{patch}': \"{text}\" isn't a {what} ({string.Join(", ", System.Enum.GetNames<T>().Select(Camel))}).");
 
-	private static void Number(Utf8JsonWriter json, string name, float value)
+	private static void Number(JsonObject json, string name, float value)
 	{
 		if (value != 0f)
-			json.WriteNumber(name, value);
+			json[name] = value;
 	}
 
 	internal static JsonDocument Parse(string json)
