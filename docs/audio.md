@@ -301,8 +301,8 @@ An effect changes the sound passing through a bus: a reverb, a limiter, a distor
 several buses share one reverb.
 
 ```csharp
-var space = Audio.CreateBus("space");          // made first: it receives sends
 var sfx = Audio.CreateBus("sfx");
+var space = Audio.CreateBus("space");          // the room several buses send to
 Audio.AddEffect(space, new Reverb());          // Loom.Audio.Synth.Effects; Wet 1, Dry 0 suit a bus fed by sends
 var toSpace = Audio.AddSend(sfx, space, 0.1f);
 Audio.AddEffect(Audio.Master, new Limiter());
@@ -313,9 +313,11 @@ Audio.SetSendLevel(toSpace, 0.4f, fadeSeconds: 0.2f); // more of the sound off t
 - **The order within a bus is its effects, then its volume, then its ducks.** Effects run on everything mixed into
   the bus, before its volume, so a reverb's tail is turned down by the bus's volume with everything else. They run in
   the order added. On the master bus they run before the focus volume and the final clip.
-- **A send's target is made before the bus that sends.** Buses are mixed from the last made back to the first, so the
-  target is finished after the sender, with the sent sound in it. A send to a bus made later, to itself, or to a bus it
-  is already mixed into throws. The sound sent is the bus's after its effects, volume and ducks.
+- **Buses and sends are made in any order.** The engine works out the order to mix them in from what feeds what: a bus
+  is finished before the bus it is mixed into and before the buses it sends to, so each receives the whole of what is
+  sent to it. A send that would make a loop (a bus sending to one mixed into it, or round through other sends), a send
+  to itself or to a bus it is already mixed into, and a send from the master throw. The sound sent is the bus's after
+  its effects, volume and ducks.
 - `Process` runs on the audio thread under the rules for a source's `Render` ([The rules for `Render`](#the-rules-for-render)):
   size buffers in `OnPrepare`, which `AddEffect` calls on the game thread. Its controls are `AudioParameter` and
   `SmoothedParameter` members of its own.

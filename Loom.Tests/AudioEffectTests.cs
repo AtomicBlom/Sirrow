@@ -3,8 +3,9 @@ using Loom.Audio;
 namespace Loom.Tests;
 
 /// <summary>
-/// Effects on buses and sends between them, rendered offline: the order within a bus, the rule that a send's target is
-/// made first, an effect that throws, and the steady-state render that must still allocate nothing.
+/// Effects on buses and sends between them, rendered offline: the order within a bus, sends made in any order and the
+/// loops
+/// refused, an effect that throws, and the steady-state render that must still allocate nothing.
 /// </summary>
 public class AudioEffectTests
 {
@@ -139,16 +140,47 @@ public class AudioEffectTests
 	}
 
 	[Test]
-	public void A_send_to_a_bus_it_cannot_reach_in_order_throws()
+	public void A_send_to_a_bus_made_after_it_mixes_as_one_made_before()
+	{
+		// The receiving bus made last: the engine finishes the sender first all the same
+		var (engine, device) = Make();
+		var sfx = engine.CreateBus("sfx");
+		var space = engine.CreateBus("space");
+		engine.AddSend(sfx, space, 0.5f);
+		engine.Play(Constant(engine, 0.5f), sfx);
+		ShouldAllBe(Settled(device), 0.75f);
+	}
+
+	[Test]
+	public void A_chain_of_sends_made_in_any_order_mixes_whole()
+	{
+		// a sends a quarter on to b, b a quarter on to c, each made before the bus it sends to: 0.5 into a, 0.125 of it into
+		// b, and a quarter of b's 0.125 into c
+		var (engine, device) = Make();
+		var a = engine.CreateBus("a");
+		var b = engine.CreateBus("b");
+		var c = engine.CreateBus("c");
+		engine.AddSend(b, c, 0.25f);
+		engine.AddSend(a, b, 0.25f);
+		engine.Play(Constant(engine, 0.5f), a);
+		ShouldAllBe(Settled(device), 0.5f + 0.125f + 0.125f * 0.25f);
+	}
+
+	[Test]
+	public void A_send_that_would_make_a_loop_or_double_back_throws()
 	{
 		var (engine, _) = Make();
 		var sfx = engine.CreateBus("sfx");
-		var later = engine.CreateBus("later");
 		var child = engine.CreateBus("child", sfx);
+		var x = engine.CreateBus("x");
+		var y = engine.CreateBus("y");
+		engine.AddSend(x, y);
 
-		Should.Throw<ArgumentException>(() => engine.AddSend(sfx, later));
-		Should.Throw<ArgumentException>(() => engine.AddSend(sfx, sfx));
-		Should.Throw<ArgumentException>(() => engine.AddSend(child, sfx));
+		Should.Throw<ArgumentException>(() => engine.AddSend(sfx, sfx));            // itself
+		Should.Throw<ArgumentException>(() => engine.AddSend(child, sfx));          // into what it is already mixed into
+		Should.Throw<ArgumentException>(() => engine.AddSend(sfx, child));          // a parent to its child: a loop
+		Should.Throw<ArgumentException>(() => engine.AddSend(y, x)).Message.ShouldContain("loop");
+		Should.Throw<ArgumentException>(() => engine.AddSend(engine.Master, sfx));  // the master, mixed last
 	}
 
 	[Test]

@@ -52,4 +52,6 @@ internal enum AudioCommandKind : byte
 	AddSend,
 	/// <summary>Move send <see cref="AudioCommand.Index"/>'s level to A over <see cref="AudioCommand.Frames"/>.</summary>
 	SendLevel,
+	/// <summary>The buses below the master, in the order to finish them: the <c>int[]</c> in <see cref="AudioCommand.Payload"/>.</summary>
+	MixOrder,
 }

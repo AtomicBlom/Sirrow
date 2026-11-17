@@ -56,6 +56,9 @@ public sealed class AudioEngine : IDisposable
 	private readonly int[] _busEffects;
 	private readonly int _maxEffectsPerBus;
 	private readonly float[] _sendLevels;
+	// Each send's buses, from which and to which: what the mix order is derived from, with the buses' parents
+	private readonly int[] _sendFrom;
+	private readonly int[] _sendTo;
 	private int _sendCount;
 	private float _unfocusedVolume;
 	private bool _focused = true;
@@ -118,6 +121,8 @@ public sealed class AudioEngine : IDisposable
 		_busEffects = new int[options.MaxBuses];
 		_maxEffectsPerBus = options.MaxEffectsPerBus;
 		_sendLevels = new float[options.MaxSends];
+		_sendFrom = new int[options.MaxSends];
+		_sendTo = new int[options.MaxSends];
 
 		_spatial = new bool[options.MaxVoices];
 		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, options.MaxDucks, options.MaxEffectsPerBus, options.MaxSends,
@@ -169,6 +174,7 @@ public sealed class AudioEngine : IDisposable
 		_busNames[index] = name;
 		_busParents[index] = parent.Index;
 		_busVolumes[index] = 1f;
+		SendMixOrder(MixOrder());
 		return new AudioBus(index);
 	}
 
@@ -294,14 +300,16 @@ public sealed class AudioEngine : IDisposable
 	/// <summary>
 	/// Mixes <paramref name="from"/> into <paramref name="to"/> at <paramref name="level"/>, as well as into its own parent:
 	/// a share of a bus sent to a reverb. The sound sent is the bus's after its effects, volume and ducks. Make sends at
-	/// load: there are at most <see cref="AudioOptions.MaxSends"/>, and none is removed (a level of 0 silences one).
+	/// load: there are at most <see cref="AudioOptions.MaxSends"/>, and none is removed (a level of 0 silences one). The
+	/// buses may be made in any order: the engine works out which to finish first from what feeds what.
 	/// </summary>
-	/// <param name="from">The bus sending.</param>
+	/// <param name="from">The bus sending. Not the master, which nothing is mixed after.</param>
 	/// <param name="to">
-	/// The bus receiving. It must have been made before <paramref name="from"/> (buses are mixed from the last made back to
-	/// the first, so the receiver is finished after the sender), and must not be a bus <paramref name="from"/> already mixes into.
+	/// The bus receiving. Not a bus <paramref name="from"/> already mixes into, nor one that would make a loop (a bus sending
+	/// to a bus mixed into it, directly or through sends).
 	/// </param>
 	/// <param name="level">A linear gain: 1 sends the bus at its own level.</param>
+	/// <exception cref="ArgumentException">A send to itself, from the master, to a bus it is mixed into, or one making a loop.</exception>
 	public AudioSend AddSend(AudioBus from, AudioBus to, float level = 1f)
 	{
 		CheckThread();
@@ -310,17 +318,21 @@ public sealed class AudioEngine : IDisposable
 		CheckVolume(level);
 		if (from == to)
 			throw new ArgumentException("A bus can't send to itself.", nameof(to));
-		if (to.Index >= from.Index)
-			throw new ArgumentException(
-				$"The bus that receives a send is made before the bus that sends: make '{_busNames[to.Index]}' first.", nameof(to));
+		if (from.Index == 0)
+			throw new ArgumentException("The master bus can't send: it is the last mixed.", nameof(from));
 		if (Contains(to.Index, from.Index))
 			throw new ArgumentException($"'{_busNames[from.Index]}' is already mixed into '{_busNames[to.Index]}'.", nameof(to));
 		if (_sendCount == _sendLevels.Length)
 			throw new InvalidOperationException($"The engine already holds its {_sendLevels.Length} sends: raise AudioOptions.MaxSends for more.");
+		// The order with this send in it, worked out before anything is sent: a loop throws here and changes nothing
+		var order = MixOrder(from.Index, to.Index);
 		var index = _sendCount;
 		Send(new AudioCommand { Kind = AudioCommandKind.AddSend, Index = index, Bus = from.Index, Frames = to.Index, A = level });
 		_sendCount++;
 		_sendLevels[index] = level;
+		_sendFrom[index] = from.Index;
+		_sendTo[index] = to.Index;
+		SendMixOrder(order);
 		return new AudioSend(index);
 	}
 
@@ -955,6 +967,52 @@ public sealed class AudioEngine : IDisposable
 				return true;
 		return false;
 	}
+
+	// The order the mixer finishes the buses below the master in, derived from what feeds what: a bus before the bus it is
+	// mixed into and before the buses it sends to. With `from` and `to` an edge not yet made, checked before it is. Among
+	// buses free to go at once, the last made goes first, which is how buses were mixed before sends could point anywhere.
+	private int[] MixOrder(int from = -1, int to = -1)
+	{
+		var count = _busCount;
+		var waiting = new int[count];   // how many buses must be finished before each
+		for (var b = 1; b < count; b++)
+			if (_busParents[b] != 0)
+				waiting[_busParents[b]]++;
+		for (var s = 0; s < _sendCount; s++)
+			if (_sendTo[s] != 0)
+				waiting[_sendTo[s]]++;
+		if (from > 0 && to > 0)
+			waiting[to]++;
+
+		var order = new int[count - 1];
+		var done = new bool[count];
+		for (var placed = 0; placed < order.Length; placed++)
+		{
+			var next = -1;
+			for (var b = count - 1; b > 0 && next < 0; b--)
+				if (!done[b] && waiting[b] == 0)
+					next = b;
+			if (next < 0)
+			{
+				var stuck = string.Join(", ", Enumerable.Range(1, count - 1).Where(b => !done[b]).Select(b => $"'{_busNames[b]}'"));
+				throw new ArgumentException(
+					$"A send would make a loop: {stuck} would each have to be mixed before another of them. A bus can't send to one mixed into it.");
+			}
+			order[placed] = next;
+			done[next] = true;
+			if (_busParents[next] != 0)
+				waiting[_busParents[next]]--;
+			for (var s = 0; s < _sendCount; s++)
+				if (_sendFrom[s] == next && _sendTo[s] != 0)
+					waiting[_sendTo[s]]--;
+			if (next == from && to > 0)
+				waiting[to]--;
+		}
+		return order;
+	}
+
+	// The mixer told the order derived now
+	private void SendMixOrder(int[] order) => Send(new AudioCommand { Kind = AudioCommandKind.MixOrder, Payload = order });
 
 	private static void CheckVolume(float volume)
 	{

@@ -74,7 +74,7 @@ Steer a source from the game with:
   thread posting and one taking.
 
 A bus can run **`AudioEffect`**s (`AddEffect`: a reverb, a limiter), under the same rules as `Render`, before its
-volume; and a **send** (`AddSend`) mixes a share of one bus into another made before it, as a reverb bus is fed.
+volume; and a **send** (`AddSend`) mixes a share of one bus into another, as a reverb bus is fed, in an order the engine derives from what feeds what.
 
 ## The threading model
 

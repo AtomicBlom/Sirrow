@@ -146,9 +146,9 @@ defaults of the tables below.
 A reverb shared by several buses, through sends:
 
 ```csharp
-var space = Audio.CreateBus("space");     // made first: it receives sends
 var sfx = Audio.CreateBus("sfx");
 var music = Audio.CreateBus("music");
+var space = Audio.CreateBus("space");     // the room both send to: buses may be made in any order
 var reverb = new Reverb(size: 1.2f);
 Audio.AddEffect(space, reverb);
 var sfxToSpace = Audio.AddSend(sfx, space, 0.1f);

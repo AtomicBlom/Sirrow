@@ -32,6 +32,8 @@ internal sealed class AudioMixer : IAudioRenderer
 	private int _duckCount;
 	private readonly Send[] _sends;
 	private int _sendCount;
+	// The buses below the master in the order to finish them, as the engine last derived it
+	private int[] _order = [];
 	private GainRamp _output; // after the master bus: the app's focus volume, kept apart from the game's own master volume
 							  // The listener, as the game last set it: 3D voices are placed against it every block
 	private readonly float _speedOfSound;
@@ -63,7 +65,7 @@ internal sealed class AudioMixer : IAudioRenderer
 		_voices = new Voice[maxVoices];
 		_buses = new Bus[maxBuses];
 		for (var i = 0; i < maxBuses; i++)
-			_buses[i] = new Bus(maxEffectsPerBus);
+			_buses[i] = new Bus(maxEffectsPerBus, maxSends);
 		_ducks = new Duck[maxDucks];
 		_sends = new Send[maxSends];
 		_output.SetNow(1f);
@@ -135,17 +137,17 @@ internal sealed class AudioMixer : IAudioRenderer
 				End(i);
 		}
 
-		// Children before parents: a bus's parent always has a lower index, so mixing from the last bus down is in order
-		for (var b = _busCount - 1; b > 0; b--)
+		// In the order the engine derived from what feeds what: a bus is finished before the bus it is mixed into and the buses
+		// it sends to, so each is whole when it is added into the next
+		var order = _order;
+		for (var o = 0; o < order.Length; o++)
 		{
-			var bus = _buses[b];
+			var bus = _buses[order[o]];
 			FinishBus(bus, n);
-			// A send's target was made before its sender, so it has a lower index and is finished later in this loop
-			for (var s = 0; s < _sendCount; s++)
+			for (var s = 0; s < bus.SendCount; s++)
 			{
-				ref var send = ref _sends[s];
-				if (send.From == b)
-					AddRamped(bus, _buses[send.To], ref send.Level, n);
+				ref var send = ref _sends[bus.Sends[s]];
+				AddRamped(bus, _buses[send.To], ref send.Level, n);
 			}
 			var parent = _buses[bus.Parent];
 			Add(bus.Left, parent.Left, n);
@@ -281,10 +283,15 @@ internal sealed class AudioMixer : IAudioRenderer
 					break;
 				case AudioCommandKind.AddSend:
 					ref var sent = ref _sends[command.Index];
-					sent.From = command.Bus;
+
 					sent.To = command.Frames;
 					sent.Level.SetNow(command.A);
 					_sendCount = Math.Max(_sendCount, command.Index + 1);
+					var sender = _buses[command.Bus];
+					sender.Sends[sender.SendCount++] = command.Index;
+					break;
+				case AudioCommandKind.MixOrder:
+					_order = (int[])command.Payload!;
 					break;
 				case AudioCommandKind.SendLevel:
 					_sends[command.Index].Level.Set(command.A, command.Frames);
@@ -565,7 +572,7 @@ internal sealed class AudioMixer : IAudioRenderer
 		public float DistanceGainTarget;
 	}
 
-	private sealed class Bus(int maxEffects)
+	private sealed class Bus(int maxEffects, int maxSends)
 	{
 		public readonly float[] Left = new float[BlockFrames];
 		public readonly float[] Right = new float[BlockFrames];
@@ -577,6 +584,8 @@ internal sealed class AudioMixer : IAudioRenderer
 		public float DuckTo = 1f; // the gain its ducks ramp it across the block, from DuckFrom
 		public readonly AudioEffect?[] Effects = new AudioEffect?[maxEffects];
 		public int EffectCount;   // run in the order added, before its volume
+		public readonly int[] Sends = new int[maxSends];
+		public int SendCount;     // the sends from it, by their slot, mixed as it is finished
 
 		private static GainRamp InitialVolume()
 		{
@@ -597,7 +606,6 @@ internal sealed class AudioMixer : IAudioRenderer
 	// A share of one bus mixed into another, besides its parent
 	private struct Send
 	{
-		public int From;
 		public int To;
 		public GainRamp Level;
 	}
