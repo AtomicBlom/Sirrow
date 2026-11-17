@@ -127,7 +127,7 @@ internal sealed class ChipVoice
 			op.Data = null;
 			op.RootHz = 0f;
 			op.Previous = 0f;
-			op.Burst = 0;
+
 			op.LossScale = 1f;
 			_attackFrames = MathF.Max(_attackFrames, spec.Envelope.Attack * _rate);
 			switch (spec.Kind)
@@ -215,7 +215,7 @@ internal sealed class ChipVoice
 		var scale = squares > 1e-12f ? 0.26f * velocity / MathF.Sqrt(squares / period) : 0f;
 		for (var s = 0; s < period; s++)
 			line.Write(shaped[s] * scale);
-		op.Burst = 0;
+
 	}
 
 	/// <summary>A note moved by a mono patch: the new pitch and id, its envelopes left alone (gated on again if let go).</summary>
@@ -580,7 +580,7 @@ internal sealed class ChipVoice
 	}
 
 	// Whether every operator the output hears has finished: its envelope idle (or a struck one died away), a sample past
-	// its end, a string or tube with its drivers idle (a string with none, its burst spent)
+	// its end, a string or tube with its drivers idle (a string with none, plucked once at the start, at once)
 	private bool HeardIdle()
 	{
 		var specs = Patch.Operators;
@@ -591,7 +591,7 @@ internal sealed class ChipVoice
 			_idle[i] = spec.Kind switch
 			{
 				OperatorKind.Sample => op.Data is null || op.Position >= op.Data.Samples.Length || (!spec.OneShot && EnvelopeDone(ref op, spec)),
-				OperatorKind.String => spec.Drivers.Length == 0 ? op.Burst <= 0 : DriversIdle(spec),
+				OperatorKind.String => spec.Drivers.Length == 0 || DriversIdle(spec),
 				OperatorKind.Tube or OperatorKind.Modes => DriversIdle(spec),
 				_ => EnvelopeDone(ref op, spec),
 			};
@@ -759,11 +759,7 @@ internal sealed class ChipVoice
 			var x = 0f;
 			foreach (var driver in drivers)
 				x += scratch[driver][s];
-			if (drivers.Length == 0 && op.Burst > 0)
-			{
-				x = op.Noise.Next() * Velocity;
-				op.Burst--;
-			}
+
 			var y = line.ReadHermite(delay);
 			var f = (1f - smooth) * y + smooth * previous;
 			previous = y;
@@ -856,7 +852,6 @@ internal sealed class ChipVoice
 		public SampleData? Data;
 		public float RootHz;
 		public float Previous;
-		public int Burst;
 		public float LossScale;
 		public float KeyGain;     // the operator's level for this note, from how it follows the keyboard
 		public float KeyTime;     // and what its decay, release and ring are multiplied by

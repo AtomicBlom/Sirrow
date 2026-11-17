@@ -156,7 +156,7 @@ public sealed class Line : Part
 					Note = pitch.Midi,
 					Piece = -1,
 					Velocity = note.Velocity,
-					Slide = note.Slide,
+
 				});
 			}
 		}

@@ -8,5 +8,4 @@ internal struct SongEvent
 	public float Note;      // a MIDI note; 60 for a hit
 	public int Piece;       // the kit piece's index, or -1 for a pitched note
 	public float Velocity;
-	public bool Slide;
 }

@@ -13,7 +13,9 @@ public enum OperatorKind
 	Level,
 	/// <summary>A recorded sample, pitched to the note (<see cref="SampleSet"/>).</summary>
 	Sample,
-	/// <summary>A plucked string: a burst of noise, or its drivers, ringing round a tuned delay line.</summary>
+	/// <summary>
+	/// A plucked string: a pluck shaped at its pick point, or its drivers, ringing round a tuned delay line.
+	/// </summary>
 	String,
 	/// <summary>A flute: a jet driving a bore, blown by its drivers.</summary>
 	Tube,
