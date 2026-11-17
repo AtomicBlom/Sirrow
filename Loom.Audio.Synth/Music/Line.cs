@@ -161,4 +161,16 @@ public sealed class Line : Part
 			}
 		}
 	}
+
+	/// <summary>Its notes as written: "1 3 5 3 | 4 - 2 .".</summary>
+	public string Text => _text;
+
+	/// <summary>The length of a step, in <see cref="Ticks"/>: <see cref="Ticks.Eighth"/> for <see cref="Eighths"/>.</summary>
+	public int Step => _step;
+
+	/// <summary>Whether its degrees are read from each bar's chord (<see cref="OverChords"/>) rather than the scale.</summary>
+	public bool IsOverChords => _overChords;
+
+	/// <summary>The octaves it is moved by (<see cref="Octave"/>), on top of its track's.</summary>
+	public int OctaveShift => _shift;
 }

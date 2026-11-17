@@ -156,4 +156,16 @@ public sealed class Strum : Part
 			}
 		}
 	}
+
+	/// <summary>Its strokes as written: "D . D U . U D U".</summary>
+	public string Text => _pattern;
+
+	/// <summary>The length of a step, in <see cref="Ticks"/>: <see cref="Ticks.Eighth"/> for <see cref="Eighths"/>.</summary>
+	public int Step => _step;
+
+	/// <summary>How each chord is laid on the strings (<see cref="Voicing(Music.Voicing)"/>).</summary>
+	public Voicing ChordVoicing => _voicing;
+
+	/// <summary>How long a stroke takes to cross the strings, in milliseconds (<see cref="Spread"/>).</summary>
+	public float SpreadMs => _spreadMs;
 }

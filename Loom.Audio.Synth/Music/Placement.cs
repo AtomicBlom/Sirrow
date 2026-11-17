@@ -19,7 +19,8 @@ public sealed class Placement
 	public Section Section { get; }
 	/// <summary>The track that plays it.</summary>
 	public SongTrack Track { get; }
-	internal Part Part { get; }
+	/// <summary>What it plays: a <see cref="Line"/>, <see cref="Beat"/> or <see cref="Strum"/>, or a part of a game's own.</summary>
+	public Part Part { get; }
 	internal ParsedPart Parsed { get; }
 	/// <summary>When it plays (<see cref="When"/>), or null for always. Its <c>ToString</c> says it in words.</summary>
 	public Condition? Condition { get; private set; }
@@ -85,9 +86,13 @@ public sealed class Placement
 		ArgumentNullException.ThrowIfNull(fill);
 		fill.Check(Track);
 		Fill = fill.Parse(Section.Song.Meter);
+		FillPart = fill;
 		return this;
 	}
 
 	/// <inheritdoc/>
 	public override string ToString() => Name;
+
+	/// <summary>The part that replaces the section's last bar (<see cref="EndWith"/>), or null.</summary>
+	public Part? FillPart { get; private set; }
 }

@@ -106,4 +106,10 @@ public sealed class Beat : Part
 			}
 		}
 	}
+
+	/// <summary>Its rows as written: a piece and its pattern ("x... ..x.") each.</summary>
+	public IReadOnlyList<(DrumPiece Piece, string Pattern)> Rows => _rows;
+
+	/// <summary>The length of a step, in <see cref="Ticks"/>: <see cref="Ticks.Sixteenth"/> for <see cref="Sixteenths"/>.</summary>
+	public int Step => _step;
 }
