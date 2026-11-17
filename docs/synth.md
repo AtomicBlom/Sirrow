@@ -72,6 +72,24 @@ The rules:
 - A frequency between two bins of `Spectrum` reads lower than its amplitude, by up to 1.4 dB with the Hann window.
   `LevelAt` reads any frequency exactly, so measure a known frequency with it.
 
+### Taking a sound apart: `Loom.Audio.Synth.Analysis`
+
+For designing a patch like a recording, or judging a change to a mix without ears. Each takes one channel (or
+interleaved stereo for a mix) and its rate, and, like `AudioAnalysis`, allocates.
+
+| Call | What it measures |
+|---|---|
+| `HitMeasures.Onsets` | Where each hit starts: a jump of 9 dB in the loudest of the last 20 ms |
+| `HitMeasures.Pitch` | The pitch under a frequency at given times, from its half-cycles: a kick's fall |
+| `HitMeasures.Tones` | The tones standing out of the body (`Tone`: hertz, level) |
+| `HitMeasures.Brightness` | The spectrum's centre over a window from a time: how the top fades |
+| `HitMeasures.Flatness`, `BandEnvelope` | Each band's noisiness (1 noise, near 0 a tone) and its level over time |
+| `HitMeasures.Tail` | How long until it stays under a share of its peak |
+| `NoteMeasures.Partials` | A note's partials (`Partial`), its fundamental, and whether they are harmonics |
+| `NoteMeasures.Ring` | How one partial rings (`PartialRing`): its peak and when, its fall early and late, how it beats |
+| `NoteMeasures.Strike` | How much brighter the first 15 ms are than 60 ms in |
+| `MixMeasures.Balance`, `Spread` | A mix's energy by band, its centre, its crest, how wide it is; a stretch in brief |
+
 ## 4. Building blocks: `Loom.Audio.Synth.Dsp`
 
 What an `AudioSource` is made of. The structs hold their own state and are meant to be **fields of a source**: set
