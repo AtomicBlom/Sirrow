@@ -651,11 +651,21 @@ off the audio thread's deadline: the thread's load fell from 2.4% to 1.0% of it,
 
 ## 10. The workbench: `Loom.Audio.Workbench`
 
-A window for writing music in code, kept apart from `Loom.Audio.Synth` because it is UI (SUIsei) and the synth is not.
-A song stays C# in the game's own files. The workbench plays it, shows it, lets you steer it, and plays it again each time
-the file is saved: `loom-workbench` opens any music project and compiles it again in-process with Roslyn (below,
-"Opening a project"), and an app hosting the workbench over its own catalog can run under `dotnet watch` instead.
-[`samples/HelloSynth`](../samples/HelloSynth) is the sample of that: a demo song, four patches and a kit.
+A window for writing music, kept apart from `Loom.Audio.Synth` because it is UI (SUIsei) and the synth is not. A song
+stays in the game's own project, as files the workbench edits (section 11) and C# for what they can't say. The
+workbench plays it, shows it, lets you steer it, and plays it again each time a file is saved.
+
+Start it with `loom-workbench`, the app that opens a music project and compiles it again in-process with Roslyn on
+every save (below, "Opening a project"). From Loom's root:
+
+```
+dotnet run --project Loom.Audio.Workbench.App -- samples/HelloSynth
+dotnet run --project Loom.Audio.Workbench.App -- new ../MyTunes        a project of your own, from HelloSynth, opened
+```
+
+[`samples/HelloSynth`](../samples/HelloSynth) is a music project to start from: a demo song, four patches, a kit, two
+cues and a macro. An app can also host the workbench itself over a catalog of its own ("Hosting the workbench in an
+app of your own", at the end of this section), though `loom-workbench` is the way a game's music is written.
 
 What it shows, one job at a time: a rail down the left gives the middle of the window to **Arrange**, **Patch**,
 **Kit** or **Files**, and the keyboard docked along the bottom plays what that mode has chosen.
@@ -710,45 +720,13 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
 A host lays the window out at `WorkbenchView.FitScale(surface, displayScale)`: the display's scale, but never so large
 that the layout is smaller than the workbench needs, so a 1280 by 800 window on a 200% display is laid out at 1.
 
-**The catalog.** A game hands the workbench a `WorkbenchCatalog`: its songs, patches and kits, each a name and a
-factory, and its cues. The factories matter. Hot reload changes what a factory returns, so the workbench calls it again
-after every edit rather than keeping what it made.
+**The catalog.** The workbench plays a `WorkbenchCatalog`: the songs, patches and kits, each a name and a factory, and
+the cues. The factories matter. A build changes what a factory returns, so the workbench calls it again after every
+build rather than keeping what it made. `loom-workbench` makes the catalog from the project's `[MusicCatalog]` class.
 
-**Hosting it.** HelloSynth's app, cut to what matters:
-
-```csharp
-protected override void Configure(AppOptions options) => options.Audio = new AudioOptions();
-
-protected override void LoadContent()
-{
-	_ui = new UIHost();
-	_painter = UIPainter.Create(Engine, _ui);
-	_view = _ui.CreateRoot(UILayer.Default);
-	_workbench = new Workbench(Audio, Audio.CreateBus("music"), DemoCatalog.Make());
-	if (_state.Load() is { } state)                  // a WorkbenchStateFile
-		_workbench.RestoreState(state);              // where it was before a restart
-	_view.Root.Content = new WorkbenchView(_workbench.ViewModel);
-	PushInputLayer(new SUIseiInputLayer(_ui));
-	// ... a graph with the UI pass over the backbuffer
-}
-
-protected override void Update(FrameTime time)
-{
-	_workbench.HandleInput(Input);                   // the computer's keys
-	_workbench.Update(time.DeltaSeconds);            // the player, the meters, and a rebuild after an edit
-	// ... _state.Save(_workbench.CaptureState()) once a second: written only when it changed
-}
-```
-
-The workbench uses only `Loom.Audio.Synth`'s public API, so a game can build a tool of its own the same way: a
-placement's `Section`, `Track`, `Condition` (whose `ToString` says it in words), `LevelCue` and `IsOnPhrase`; a cue's
-`OptionNames` and `OptionValue`; the player's `Get` and `Set` for any cue, `SectionTick` for a playhead, and
-`Pattern(placement)`, one pass of a part's notes as the sequencer plays them.
-
-`WorkbenchView.TransportExtras` is a panel at the end of the transport bar for the host's own controls (a toggle for a
-sound of the game's own to hear under the music, say). `CaptureState` and `RestoreState` keep the song, whether it
-played and in which section, the loop, a scale played in place of the song's, the cues, the mutes, solos, gains and
-forced placements, and the bench's patch, kit, octave and velocity, all by name, as JSON (`WorkbenchStateJson`).
+What it was doing is kept and restored (`CaptureState`, `RestoreState`): the song, whether it played and in which
+section, the loop, a scale played in place of the song's, the cues, the mutes, solos, gains and forced placements, and
+the bench's patch, kit, octave and velocity, all by name, as JSON (`WorkbenchStateJson`).
 
 **Keys:** `A W S E D F T G Y H U J K` play an octave of notes on what the keyboard plays, C
 to C, as a piano's keys lie. `Z` and `X` move it down and up an octave. `Space` plays or stops, and `1` to `9` jump to a
@@ -762,8 +740,12 @@ While a text field has the keys (the palette, the library's filter), the workben
 ```
 loom-workbench <project.csproj | its folder> [--extension <csproj>]
                                                  the workbench over that project, with its extension
-loom-workbench new <folder>                      a project to start from (a catalog, a cue, two patches, a song), opened
+loom-workbench new <folder>                      a project to start from (HelloSynth's, renamed), opened
 ```
+
+Under `dotnet run` the arguments follow `--`, as above. A game can keep a one-line script beside its music that runs it
+(RubberTrack's `studio.ps1`). It isn't a `dotnet tool`: it is a Loom app, with native libraries (SDL 3) and compiled
+shaders beside it, built from the Loom it shares with the music it opens.
 
 A music project is an ordinary class library whose assembly names its catalog:
 `[assembly: MusicCatalog(typeof(Catalog))]` (`Loom.Audio.Synth.Music`). The workbench reads the class's public static
@@ -790,8 +772,9 @@ library carries it without referencing any UI.
   has loaded must be the very build it runs: a project built against another Loom, or a reference rebuilt since the
   workbench started, is refused with a message naming both files (`SharedReferences`, by module version id). A change
   to the project's own references (another project of the game's) needs the workbench restarted.
-- **`ProjectTemplate.Create(folder)`** is what `new` writes. Its `.csproj` references `Loom.Audio.dll` and
-  `Loom.Audio.Synth.dll` from the workbench's own folder, so the two always match.
+- **`ProjectTemplate.Create(folder)`** is what `new` writes: HelloSynth's C# and music files, its namespace renamed for
+  the folder. Its `.csproj` references `Loom.Audio.dll` and `Loom.Audio.Synth.dll` from the workbench's own folder, and
+  the music generator beside them as its analyzer, so they always match.
 - **What it was doing** is kept beside the project, in `.loom/workbench.json` (`WorkbenchStateFile.Beside`), restored
   once the first build has played.
 
@@ -812,7 +795,13 @@ The music project names its extension's project with an MSBuild property,
 `<LoomWorkbenchExtension>../Game.Studio/Game.Studio.csproj</LoomWorkbenchExtension>`, or `--extension <csproj>` gives
 one (`--extension none` for none). `loom-workbench` builds it in its own configuration and loads it once into the
 default context before the window opens, where the music's builds share what it references, as they share Loom; its
-own references load from beside it. It isn't reloaded: a change to it needs the workbench restarted. One built against
+own references load from beside it. It is built without building its references again (`BuildProjectReferences`
+false), taking them as they were last built, so it shares the very Loom the workbench's own build made: a shared
+project built again is another build, even from the same sources, since its sources' paths are in it (a build started
+from `c:\` rather than `C:\` compiles it again). Only an extension whose references were never built is built with
+them. A game's script that starts the workbench builds the extension first, from the same path (RubberTrack's
+`studio.ps1`), so its own references are up to date. It isn't reloaded: a change to its project's sources is said beside the build pill
+("Game.Studio changed: restart to take it up"), and needs the workbench restarted. One built against
 another build of what the workbench runs is refused, as a project is (`SharedReferences`; a library built for several
 frameworks, SUIsei, is compared only between builds for the same framework). `loom-workbench` runs on the newest .NET
 installed (`RollForward` `LatestMajor`), so it opens a project, and loads an extension, that targets a newer .NET than
@@ -821,10 +810,47 @@ Loom does.
 RubberTrack's audio library (its songs, patches, kits and their samples) opens and compiles in about 1.7 s, and compiles
 again after a save in 0.35 to 0.45 s on a Snapdragon X: well under a bar (2.2 s at 108 bpm).
 
+### Hosting the workbench in an app of your own
+
+An app can put the workbench in a window of its own over a catalog it makes itself, and run under `dotnet watch` for
+hot reload in place of `loom-workbench`'s compiles. It is the way to take the workbench somewhere `loom-workbench`
+can't go; for a game's own mix and controls beside the music, an extension (above) is simpler. Cut to what matters:
+
+```csharp
+protected override void Configure(AppOptions options) => options.Audio = new AudioOptions();
+
+protected override void LoadContent()
+{
+	_ui = new UIHost();
+	_painter = UIPainter.Create(Engine, _ui);
+	_view = _ui.CreateRoot(UILayer.Default);
+	_workbench = new Workbench(Audio, Audio.CreateBus("music"), MyCatalog.Make());
+	if (_state.Load() is { } state)                  // a WorkbenchStateFile
+		_workbench.RestoreState(state);              // where it was before a restart
+	_view.Root.Content = new WorkbenchView(_workbench.ViewModel);
+	PushInputLayer(new SUIseiInputLayer(_ui));
+	// ... a graph with the UI pass over the backbuffer
+}
+
+protected override void Update(FrameTime time)
+{
+	_workbench.HandleInput(Input);                   // the computer's keys
+	_workbench.Update(time.DeltaSeconds);            // the player, the meters, and a rebuild after an edit
+	// ... _state.Save(_workbench.CaptureState()) once a second: written only when it changed
+}
+```
+
+`loom-workbench`'s own app (`Loom.Audio.Workbench.App/WorkbenchApp.cs`) is this, with a `MusicProject` handing it
+each build (`WorkbenchProject`). `WorkbenchView.TransportExtras` is a panel at the end of the transport bar for the
+host's own controls. The workbench uses only `Loom.Audio.Synth`'s public API, so a game can build a tool of its own the
+same way: a placement's `Section`, `Track`, `Condition` (whose `ToString` says it in words), `LevelCue` and
+`IsOnPhrase`; a cue's `OptionNames` and `OptionValue`; the player's `Get` and `Set` for any cue, `SectionTick` for a
+playhead, and `Pattern(placement)`, one pass of a part's notes as the sequencer plays them.
+
 ### What hot reload can and can't do
 
-Under `dotnet watch` (an app hosting the workbench over its own catalog, as HelloSynth does); `loom-workbench` has none
-of these limits but the first.
+Under `dotnet watch`, in an app hosting the workbench itself. `loom-workbench` has none of these limits: it compiles the
+project whole and loads each build into a context of its own, whose static fields start afresh.
 
 - **A song, a patch and a kit are built by a method or a property, every time.** A `static readonly` field is
   initialised once and hot reload never runs its initialiser again.

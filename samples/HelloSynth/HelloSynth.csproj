@@ -1,41 +1,28 @@
-<Project>
+<Project Sdk="Microsoft.NET.Sdk">
 
-  <!--
-    The music workbench (Loom.Audio.Workbench) over a demo catalog, with no game: a song, four patches and a kit made
-    here, to show and try every part of the workbench. Run it under dotnet watch, edit Demo/DemoSong.cs and save: the
-    song is rebuilt and swapped in on the next bar. From this folder: dotnet watch run
-  -->
+	<!--
+		A music project to start from, and the one loom-workbench's "new" makes: a song, four patches and a kit, written in
+		the workbench and played from it with nothing else: open it with loom-workbench, as README.md says. Its song and
+		patches are files (Songs/*.song.json, Patches/*.patch.json) that Loom's music generator makes into C# as it builds;
+		what a file can't say (the kit, the cues, the catalog) is C# here.
+	-->
+	<PropertyGroup>
+		<TargetFramework>net11.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<RootNamespace>HelloSynth</RootNamespace>
+	</PropertyGroup>
 
-  <PropertyGroup>
-    <UseVulkan>true</UseVulkan>
-    <UseDirectX12>false</UseDirectX12>
-    <UseWebGPU>false</UseWebGPU>
-    <UseSUIsei>true</UseSUIsei>
-    <UseImGui>false</UseImGui>
-  </PropertyGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\..\Loom.Audio.Synth\Loom.Audio.Synth.csproj" />
+	</ItemGroup>
 
-  <Import Project="..\..\build\Loom.Sdk\Sdk\Sdk.props" />
-
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net11.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <RootNamespace>HelloSynth</RootNamespace>
-    <LoomShaderSourceDir>$(MSBuildProjectDirectory)\Shaders</LoomShaderSourceDir>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\Loom.Audio.Workbench\Loom.Audio.Workbench.csproj" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <!-- SUIsei's diagnostics endpoint, which RoseMCP's live UI tools reach the window's tree through; Debug only: the
-         switch, and the endpoint itself, which Program starts -->
-    <RuntimeHostConfigurationOption Include="SUIsei.Diagnostics.Enabled" Value="true" Trim="true" />
-    <ProjectReference Include="..\..\external\SUIsei\SUIsei.Diagnostics.Endpoint\SUIsei.Diagnostics.Endpoint.csproj" />
-  </ItemGroup>
-
-  <Import Project="..\..\build\Loom.Sdk\Sdk\Sdk.targets" />
+	<!-- The music as data: the generator makes C# of each file as the project builds -->
+	<ItemGroup>
+		<AdditionalFiles Include="Patches\*.patch.json;Songs\*.song.json" />
+		<CompilerVisibleProperty Include="RootNamespace" />
+		<CompilerVisibleProperty Include="ProjectDir" />
+		<ProjectReference Include="..\..\Loom.Audio.Music.Generator\Loom.Audio.Music.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+	</ItemGroup>
 
 </Project>

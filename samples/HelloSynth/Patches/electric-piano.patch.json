@@ -1,0 +1,16 @@
+{
+  "format": "loom-patch/1",
+  "name": "electric piano",
+  "about": "A tine piano: a struck sine modulated by a fast-dying one at fourteen times, bell-like when hard.",
+  "operators": [
+    { "name": "tine", "kind": "sine", "ratio": 14, "envelope": "decay 0.12", "level": 0.6, "velocity": 0.8 },
+    {
+      "name": "body",
+      "kind": "sine",
+      "envelope": "adsr 0.002 1.6 0.2 0.3",
+      "modulatedBy": [{ "op": "tine", "index": 1.2 }]
+    }
+  ],
+  "out": [{ "op": "body" }],
+  "sends": { "space": 0.2 }
+}

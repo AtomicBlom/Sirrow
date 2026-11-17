@@ -208,4 +208,31 @@ public class MusicGeneratorTests
 		var unclosed = Generate(("Songs/tune.song.json", "{ \"format\": \"loom-song/1\", \"name\": \"x\"")).Diagnostics.ShouldHaveSingleItem();
 		unclosed.GetMessage().ShouldContain("tune.song.json");
 	}
+
+	// The sample's folder, from this file's
+	private static string HelloSynthFolder([System.Runtime.CompilerServices.CallerFilePath] string here = "") =>
+		Path.GetFullPath(Path.Combine(Path.GetDirectoryName(here)!, "..", "samples", "HelloSynth"));
+
+	[Test]
+	public void HelloSynths_generated_music_is_what_its_files_say()
+	{
+		var folder = HelloSynthFolder();
+		foreach (var (name, build) in HelloSynth.Catalog.Patches)
+		{
+			var file = File.ReadAllText(Path.Combine(folder, "Patches", name + ".patch.json")).ReplaceLineEndings("\n");
+			var spec = PatchFile.Read(file, out var names);
+			var made = PatchSpec.From(build());
+			made.About = spec.About;
+			PatchFile.Write(made, names).ShouldBe(file);
+		}
+		var song = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "Songs", "demo.song.json")))!.AsObject();
+		song.Remove("about");
+		var generated = SongFile.ToJson(HelloSynth.Catalog.Songs.Single().Build(), new SongNames
+		{
+			Patch = p => HelloSynth.Catalog.Patches.First(x => x.Build().Name == p.Name).Name,
+			Kit = _ => "demo-kit",
+			Macro = m => m.Id == 0 ? "bright" : null,
+		});
+		SongFile.Write(generated).ShouldBe(SongFile.Write(song));
+	}
 }
