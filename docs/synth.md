@@ -645,16 +645,27 @@ A song stays C# in the game's own files. The workbench plays it, shows it, lets 
 the file is saved under `dotnet watch`. [`samples/HelloSynth`](../samples/HelloSynth) is the sample: a demo song, four
 patches and a kit.
 
-What it shows:
-- **The transport.** The songs, play and stop, the position (section, bar, beat), the tempo and the scale.
-- **The sections**, one button each (a click jumps there at the next bar), and a loop on the section playing.
-- **The cues**, the catalog's whether the song uses them: a slider for a `Cue`, a button per value for a `Cue<T>`.
-- **The tracks.** Each with mute, solo, a gain and a level meter, and under it its placements: whether each is playing,
-  its condition, and auto, on and off to force it.
-- **The patch bench.** A patch or a kit, played from a two-octave keyboard, the computer's keys or the kit's pads, with
-  the patch's macros as sliders.
-- **The pattern** of the part selected, drawn as notes over the bar.
-- **A banner** with the error of a song that didn't build, while the last one plays on.
+What it shows, one job at a time: a rail down the left gives the middle of the window to **Arrange**, **Patch** or
+**Kit**, and the keyboard docked along the bottom plays what that mode has chosen.
+- **The transport.** The song chosen, play and stop, the position (section, bar, beat), the tempo and the scale, the
+  loop on the section playing, and the host's own controls. At its right, the last build's status as a pill: red when
+  the song didn't build, and a click opens its error over the view (the last song that built plays on).
+- **The library** (the rail's first button): the catalog's songs, patches and kits in one list, filtered by the words
+  typed. It opens over the view and folds away once something is chosen; **Pin** keeps it open as a column.
+- **Arrange.** The sections as a timeline, each as wide as its bars, lit while it plays with how far through it is; a
+  click jumps there at the next bar, marked until then; what plays next, and why (the conductor asked with the cues as
+  they are, `MusicPlayer.NextSection`). Under it the tracks as lanes, a column per section: each track's mute, solo, gain
+  and meter, and its parts as clips in the sections they play in, drawn small, whether each plays, its condition green
+  while it holds (`Condition.IsMet`), and auto, on and off to force it. The part chosen is drawn below, as notes over
+  the bar. Beside it **the cues**: a slider for a `Cue` with the levels parts wait on marked over it and what waits on
+  each, a button per value for a `Cue<T>`; one the song doesn't read is dimmed.
+- **Patch.** The patch chosen, played from the keyboard, with its macros as sliders.
+- **Kit.** The kit chosen, a pad per piece.
+- **The keyboard**, docked: two octaves, what it plays, how hard, its octave, the chip's load.
+- **The command palette** (Ctrl K): the catalog, the song's sections and the commands, found by every word typed.
+
+A host lays the window out at `WorkbenchView.FitScale(surface, displayScale)`: the display's scale, but never so large
+that the layout is smaller than the workbench needs, so a 1280 by 800 window on a 200% display is laid out at 1.
 
 **The catalog.** A game hands the workbench a `WorkbenchCatalog`: its songs, patches and kits, each a name and a
 factory, and its cues. The factories matter. Hot reload changes what a factory returns, so the workbench calls it again
@@ -696,9 +707,10 @@ sound of the game's own to hear under the music, say). `CaptureState` and `Resto
 played and in which section, the loop, a scale played in place of the song's, the cues, the mutes, solos, gains and
 forced placements, and the bench's patch, kit, octave and velocity, all by name, as JSON (`WorkbenchStateJson`).
 
-**Keys:** `A W S E D F T G Y H U J K` play an octave of notes on the patch bench, C to
-C, as a piano's keys lie. `Z` and `X` move it down and up an octave. `Space` plays or stops, and `1` to `9` jump to a
-section.
+**Keys:** `A W S E D F T G Y H U J K` play an octave of notes on what the keyboard plays, C
+to C, as a piano's keys lie. `Z` and `X` move it down and up an octave. `Space` plays or stops, and `1` to `9` jump to a
+section. `Ctrl K` opens the command palette; `Escape` closes the palette, the library over the view, or a build's error.
+While a text field has the keys (the palette, the library's filter), the workbench leaves them alone.
 
 ### What hot reload can and can't do
 
