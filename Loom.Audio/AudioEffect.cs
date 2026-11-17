@@ -46,12 +46,66 @@ public abstract class AudioEffect
 			throw new InvalidOperationException(
 				"The effect is already prepared: an effect instance belongs to one bus. Make another instance for another bus.");
 		SampleRate = sampleRate;
+		var memory = MemorySeconds;
+		_memoryFrames = double.IsFinite(memory) ? (long)Math.Ceiling(Math.Max(memory, 0.0) * sampleRate) : long.MaxValue;
 		OnPrepare(sampleRate);
 		IsPrepared = true;
 	}
 
 	/// <summary>Called once from <see cref="Prepare"/>, on the game thread: size buffers and work out coefficients here.</summary>
 	protected virtual void OnPrepare(int sampleRate) { }
+
+	// A block whose every sample is under this is taken as silent: 120 dB under full scale
+	private const float Silent = 1e-6f;
+
+	private long _memoryFrames = long.MaxValue;
+	private long _quietFrames;
+	private volatile bool _resting;
+
+	/// <summary>
+	/// How long the effect can still hold sound after its input falls silent without any of it showing at its output, in
+	/// seconds: at least its longest delay. Once silence has gone in and come out for this long, the effect has nothing
+	/// left to say and <see cref="Run"/> lets it rest. Default 1, which covers a filter, a compressor's envelope or a short
+	/// delay; an effect with a longer delay says so, and one that makes sound of its own returns
+	/// <see cref="double.PositiveInfinity"/>, never to rest. Read once, in <see cref="Prepare"/>.
+	/// </summary>
+	protected virtual double MemorySeconds => 1.0;
+
+	/// <summary>Whether <see cref="Run"/> is skipping the effect, with silence going in and nothing left in it. Any thread may read it.</summary>
+	public bool IsResting => _resting;
+
+	/// <summary>
+	/// What whoever owns the effect calls for each block, in place of <see cref="Process"/>: it processes the block unless
+	/// silence has gone in and come out for <see cref="MemorySeconds"/>, after which the block is left alone (it is
+	/// silence) until sound comes in again. An effect costs nothing while nothing plays through it. Audio thread.
+	/// </summary>
+	public void Run(Span<float> left, Span<float> right)
+	{
+		if (!IsQuiet(left) || !IsQuiet(right))
+		{
+			_quietFrames = 0;
+			if (_resting)
+				_resting = false;
+			Process(left, right);
+			return;
+		}
+		if (_quietFrames >= _memoryFrames)
+		{
+			if (!_resting)
+				_resting = true;
+			return;
+		}
+		Process(left, right);
+		_quietFrames = IsQuiet(left) && IsQuiet(right) ? _quietFrames + left.Length : 0;
+	}
+
+	private static bool IsQuiet(ReadOnlySpan<float> samples)
+	{
+		for (var i = 0; i < samples.Length; i++)
+			if (MathF.Abs(samples[i]) >= Silent)
+				return false;
+		return true;
+	}
 
 	/// <summary>
 	/// Changes <paramref name="left"/> and <paramref name="right"/> in place: two spans of equal length, at most

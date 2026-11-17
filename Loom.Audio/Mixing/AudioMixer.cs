@@ -469,7 +469,7 @@ internal sealed class AudioMixer : IAudioRenderer
 					continue;
 				try
 				{
-					effect.Process(left, right);
+					effect.Run(left, right);
 				}
 				catch (Exception ex)
 				{

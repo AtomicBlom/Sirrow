@@ -319,8 +319,15 @@ Audio.SetSendLevel(toSpace, 0.4f, fadeSeconds: 0.2f); // more of the sound off t
 - `Process` runs on the audio thread under the rules for a source's `Render` ([The rules for `Render`](#the-rules-for-render)):
   size buffers in `OnPrepare`, which `AddEffect` calls on the game thread. Its controls are `AudioParameter` and
   `SmoothedParameter` members of its own.
-- An effect instance belongs to one bus: adding it to a second throws. `AudioEffect.Prepare` and `Process` are public
-  so a synthesizer can run effects on groups of its own voices.
+- An effect instance belongs to one bus: adding it to a second throws. `AudioEffect.Prepare`, `Run` and `Process` are
+  public so a synthesizer can run effects on groups of its own voices.
+- **An effect costs nothing while nothing plays through it.** The mixer calls `Run`, which calls `Process` unless
+  silence (120 dB under full scale) has gone in and come out for the effect's `MemorySeconds`: then the effect rests,
+  the block is left alone, and it starts again with the first sound. A reverb's tail and a delay's echoes are heard out
+  first. `MemorySeconds` is 1 by default; override it in an effect with a longer delay (`Delay` gives its longest time),
+  or return infinity from one that makes sound of its own, which never rests. `IsResting` says whether it is. A song
+  whose distorted guitar plays in one section pays for the distortion only there: two test songs rendered twice as
+  fast, the same sample for sample.
 - An effect that throws is skipped from then on, the sound passing unchanged, and the exception is thrown from the next
   `Audio.Update`, as a source's is.
 - Add effects and sends at load. A bus holds at most `AudioOptions.MaxEffectsPerBus`, the engine at most

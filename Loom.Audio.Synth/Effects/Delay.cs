@@ -42,6 +42,9 @@ public sealed class Delay : AudioEffect
 	/// <summary>The length of <paramref name="beats"/> beats at <paramref name="bpm"/> beats a minute, in seconds.</summary>
 	public static float Beats(float beats, float bpm) => beats * 60f / bpm;
 
+	/// <summary>An echo can be as far off as the delay's longest time, so it has nothing left only after a silence longer than that.</summary>
+	protected override double MemorySeconds => _maxSeconds + 0.1;
+
 	/// <inheritdoc/>
 	protected override void OnPrepare(int sampleRate)
 	{
