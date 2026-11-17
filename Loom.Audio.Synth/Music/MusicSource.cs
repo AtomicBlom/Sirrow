@@ -188,7 +188,8 @@ internal sealed class MusicSource : AudioSource
 	{
 		while (_commands.TryTake(out var command))
 		{
-			var state = _state;
+			// A steering command goes to the song it was meant for: one swapped in but not yet taken, if the game had posted it
+			var state = _swap ?? _state;
 			switch (command.Kind)
 			{
 				case MusicCommandKind.Swap:
@@ -296,6 +297,7 @@ internal sealed class MusicSource : AudioSource
 		_nextEvent = double.MaxValue;
 		Array.Clear(_state.Active);
 		Array.Clear(_state.NoteCount);
+		SnapLevels();
 		_sectionStarts++;
 	}
 
@@ -311,6 +313,11 @@ internal sealed class MusicSource : AudioSource
 		{
 			var target = Math.Min(_jump, _state.Song.Sections.Length - 1);
 			_jump = -1;
+			// What was sounding is let go, and nothing held back or chosen for the old section carries over
+			LetGoAll(frame);
+			_pendingCount = 0;
+			_nextPending = long.MaxValue;
+			_next = -1;
 			// The jump's section starts at this frame
 			_tick = -f * _ticksPerFrame;
 			Begin(target, sameCounts: false);
@@ -386,6 +393,7 @@ internal sealed class MusicSource : AudioSource
 		if (song.Order.Length > 0)
 			_orderPosition = Math.Max(0, Array.IndexOf(song.Order, section));
 		ApplyMutes(swap);
+		SnapLevels();
 	}
 
 	// Whether a placement's condition holds now, run over its postfix steps
@@ -535,6 +543,32 @@ internal sealed class MusicSource : AudioSource
 			if (state.NoteEnds[at + i] > frame)
 				_core.Handle(new ChipEvent { Kind = ChipEventKind.NoteOff, NoteId = state.NoteIds[at + i] });
 		state.NoteCount[p] = 0;
+	}
+
+	// Every part of the section playing let go of its notes
+	private void LetGoAll(long frame)
+	{
+		var count = _state.Song.Sections[_section].Placements.Length;
+		for (var p = 0; p < count; p++)
+			if (_state.NoteCount[p] > 0)
+				LetGo(p, frame);
+	}
+
+	// A section's parts whose level follows a cue, set to it at once where they have no level yet (a section's first
+	// entry, a new song's chip): eased from there by Steer, rather than heard at full gain until the next block
+	private void SnapLevels()
+	{
+		var state = _state;
+		var placements = state.Song.Sections[_section].Placements;
+		for (var p = 0; p < placements.Length; p++)
+		{
+			var placement = placements[p];
+			if (placement.GainSlot < 0 || state.Levels[placement.GainSlot] >= 0f)
+				continue;
+			var target = Math.Clamp(Volatile.Read(ref state.Cues[placement.LevelSlot]), 0f, 1f);
+			state.Levels[placement.GainSlot] = target;
+			_core.GainSlots[placement.GainSlot] = target;
+		}
 	}
 
 	private void FirePending(long frame)

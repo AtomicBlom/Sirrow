@@ -71,6 +71,35 @@ public class ChipTests
 	}
 
 	[Test]
+	public void A_note_shorter_than_a_block_sounds_and_lets_go_at_its_frame()
+	{
+		// 5 ms is 240 frames, inside one 256-frame block: let go at its frame, not before the block it starts in
+		using var rig = new ChipRig();
+		rig.Chip.Play(rig.Chip.AddInstrument(ChipRig.Tone), 69, 0.8f, seconds: 0.005f);
+		rig.Seconds(0.2);
+
+		rig.PeakBoth(0.0, 0.01).ShouldBeGreaterThan(0.1f);
+		rig.PeakBoth(0.1, 0.1).ShouldBeLessThan(0.001f);
+	}
+
+	[Test]
+	public void A_note_let_go_while_it_waits_for_a_stolen_voice_never_starts()
+	{
+		using var rig = new ChipRig(new ChipOptions { Voices = 2 });
+		var tone = rig.Chip.AddInstrument(ChipRig.Tone);
+		rig.Chip.NoteOn(tone, 60, 0.8f);
+		rig.Chip.NoteOn(tone, 64, 0.8f);
+		rig.Seconds(0.1);
+		// Both voices busy: the third note waits for the oldest to fade, and is let go in the same block
+		var third = rig.Chip.NoteOn(tone, 67, 0.8f);
+		rig.Chip.NoteOff(third);
+		rig.Seconds(0.5);
+
+		rig.Chip.Stats.ActiveVoices.ShouldBe(1);
+		rig.Chip.Stats.StolenVoices.ShouldBe(1);
+	}
+
+	[Test]
 	public void A_note_let_go_dies_away_and_frees_its_voice()
 	{
 		using var rig = new ChipRig();

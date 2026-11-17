@@ -27,6 +27,8 @@ internal sealed class ChipCore
 	private long _released;
 	private int _stolen;
 	private volatile int _activeVoices, _activeOperators, _stolenVoices;
+	// Counted on the audio thread, read by the game's: notes that found no voice they could take
+	private volatile int _droppedNotes;
 
 	public ChipCore(ChipOptions options)
 	{
@@ -38,7 +40,7 @@ internal sealed class ChipCore
 
 	public bool IsPrepared => _rate > 0;
 	public int SampleRate => _rate;
-	public ChipStats Stats => new(_activeVoices, _activeOperators, _stolenVoices);
+	public ChipStats Stats => new(_activeVoices, _activeOperators, _stolenVoices, _droppedNotes);
 	public IReadOnlyList<ChipVoice> Voices => _voices;
 
 	// How many gain slots a core has
@@ -117,8 +119,13 @@ internal sealed class ChipCore
 				break;
 			case ChipEventKind.NoteOff:
 				foreach (var voice in _voices)
+				{
 					if (voice.Active && voice.NoteId == e.NoteId && !voice.Released)
 						voice.Release(++_released);
+					// A note still waiting for a stolen voice to fade never starts: nothing would let it go
+					if (voice.HasPending && voice.Pending.NoteId == e.NoteId && e.NoteId != 0)
+						CancelPending(voice);
+				}
 				break;
 			case ChipEventKind.Hit:
 				Hit(in e);
@@ -129,10 +136,21 @@ internal sealed class ChipCore
 				break;
 			case ChipEventKind.AllOff:
 				foreach (var voice in _voices)
+				{
 					if (voice.Active)
 						voice.Release(++_released);
+					if (voice.HasPending)
+						CancelPending(voice);
+				}
 				break;
 		}
+	}
+
+	// A note waiting for a voice that is fading out for it, let go before it started: the voice fades out and frees
+	private static void CancelPending(ChipVoice voice)
+	{
+		voice.HasPending = false;
+		voice.PendingTake = null;
 	}
 
 	private int GateFrames(in ChipEvent e) =>
@@ -199,7 +217,11 @@ internal sealed class ChipCore
 				victim = voice;
 		}
 		if (victim is null)
+		{
+			// Every voice already fading out for another note: this one is lost, and counted
+			_droppedNotes++;
 			return;
+		}
 		victim.HasPending = true;
 		victim.Pending = e;
 		victim.PendingTake = take;
@@ -238,14 +260,9 @@ internal sealed class ChipCore
 		{
 			if (!voice.Active)
 				continue;
-			if (voice.GateFrames > 0)
-			{
-				voice.GateFrames -= n;
-				if (voice.GateFrames <= 0)
-					voice.Release(++_released);
-			}
 			var group = voice.Instrument!.Group;
-			var ended = voice.Render(n, _scratch, _groupLeft[group], _groupRight[group], _spaceLeft, _spaceRight, _echoLeft, _echoRight, _keyLeft, _keyRight, GainSlots);
+			var ended = voice.Render(n, _scratch, _groupLeft[group], _groupRight[group], _spaceLeft, _spaceRight, _echoLeft, _echoRight, _keyLeft, _keyRight, GainSlots,
+				ref _released);
 			if (voice.HasPending && voice.Fade <= 0f)
 			{
 				var pending = voice.Pending;

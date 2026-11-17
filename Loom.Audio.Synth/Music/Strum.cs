@@ -129,7 +129,8 @@ public sealed class Strum : Part
 				if (tick >= limit)
 					continue;
 				// A strum rings until the next stroke, a stop included, or the part's end
-				var end = Math.Min(limit, offset + (i + 1 < strokes.Length ? strokes[i + 1].Tick : LengthTicks));
+				var end = Math.Min(limit, i + 1 < strokes.Length ? context.Swung(offset + strokes[i + 1].Tick) : offset + LengthTicks);
+				tick = context.Swung(tick);
 				var chord = context.ChordAt(tick);
 				var voiced = Voice(chord.RootClass(context.Scale), chord.Intervals(context.Scale), strum._voicing);
 				var up = stroke is 'U' or 'u';

@@ -108,7 +108,7 @@ internal sealed class CompiledSong
 			{
 				var placement = section.Placements[p];
 				var track = placement.Track;
-				var context = new PartContext(scale, section.Chords, ticksPerBar, track.OctaveValue, track.Kit, song.Tempo);
+				var context = new PartContext(scale, section.Chords, ticksPerBar, track.OctaveValue, track.Kit, song.Tempo, track.SwingRatio, track.SwingStep);
 				var events = new List<SongEvent>();
 				var parsed = placement.Parsed;
 				// The part repeated through the section, cut at its end (or at the last bar, which a fill takes)
@@ -116,7 +116,7 @@ internal sealed class CompiledSong
 				for (var offset = 0; offset < limit; offset += parsed.LengthTicks)
 					parsed.Emit(context, offset, limit, events);
 				placement.Fill?.Emit(context, length - ticksPerBar, length, events);
-				Swing(events, track);
+
 				events.Sort((a, b) => a.Tick != b.Tick ? a.Tick.CompareTo(b.Tick) : a.Note.CompareTo(b.Note));
 
 				var program = new List<ConditionOp>();
@@ -184,24 +184,6 @@ internal sealed class CompiledSong
 				EventCapacity = 64,
 			},
 		};
-	}
-
-	// Each off-beat step pushed late: an event on an odd multiple of the step moves by (ratio − 0.5) · 2 · step
-	private static void Swing(List<SongEvent> events, SongTrack track)
-	{
-		if (track.SwingRatio == 0.5f)
-			return;
-		var step = track.SwingStep;
-		var shift = (int)Math.Round((track.SwingRatio - 0.5f) * 2f * step);
-		for (var i = 0; i < events.Count; i++)
-		{
-			var e = events[i];
-			if (e.Tick % step == 0 && e.Tick / step % 2 == 1)
-			{
-				e.Tick += shift;
-				events[i] = e;
-			}
-		}
 	}
 
 	// A condition as postfix steps; Above and Below each get a latch for the 0.05 margin

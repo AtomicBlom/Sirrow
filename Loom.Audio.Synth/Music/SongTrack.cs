@@ -49,27 +49,44 @@ public sealed class SongTrack
 	}
 
 	/// <summary>Where it sits, -1 left to 1 right.</summary>
+	/// <exception cref="ArgumentOutOfRangeException">A pan outside -1 to 1.</exception>
 	public SongTrack Pan(float pan)
 	{
-		PanValue = Math.Clamp(pan, -1f, 1f);
+		if (!float.IsFinite(pan) || pan < -1f || pan > 1f)
+			throw new ArgumentOutOfRangeException(nameof(pan), pan, $"Track '{Name}': a pan runs from -1 (left) to 1 (right).");
+		PanValue = pan;
 		return this;
 	}
 
 	/// <summary>
-	/// A player's looseness: each note up to <paramref name="timingMs"/> late, never early, and its velocity up to
-	/// <paramref name="velocity"/> (a share) either way, the same way every time the song plays.
+	/// A player's looseness: each note late by up to twice <paramref name="timingMs"/> (by <paramref name="timingMs"/> on
+	/// average), never early, and its velocity up to <paramref name="velocity"/> (a share) either way, the same way every
+	/// time the song plays.
 	/// </summary>
+	/// <exception cref="ArgumentOutOfRangeException">A time or a share below 0.</exception>
 	public SongTrack Humanise(float timingMs, float velocity)
 	{
-		HumaniseMs = Math.Max(0f, timingMs);
-		HumaniseVelocity = Math.Max(0f, velocity);
+		if (!float.IsFinite(timingMs) || timingMs < 0f)
+			throw new ArgumentOutOfRangeException(nameof(timingMs), timingMs, $"Track '{Name}': a looseness in time is 0 or more milliseconds.");
+		if (!float.IsFinite(velocity) || velocity < 0f || velocity > 1f)
+			throw new ArgumentOutOfRangeException(nameof(velocity), velocity, $"Track '{Name}': a looseness in velocity is a share, 0 to 1.");
+		HumaniseMs = timingMs;
+		HumaniseVelocity = velocity;
 		return this;
 	}
 
-	/// <summary>Swing: each off-beat step of <paramref name="stepTicks"/> pushed late, 0.5 straight, 0.667 a triplet feel.</summary>
+	/// <summary>
+	/// Swing: each off-beat step of <paramref name="stepTicks"/> pushed late, 0.5 straight, 0.667 a triplet feel. The grid
+	/// is swung before anything is placed off it, so a strum's strings move together.
+	/// </summary>
+	/// <exception cref="ArgumentOutOfRangeException">A ratio outside 0.5 to 0.9, or a step of no ticks.</exception>
 	public SongTrack Swing(float ratio, int stepTicks = Ticks.Eighth)
 	{
-		SwingRatio = Math.Clamp(ratio, 0.5f, 0.9f);
+		if (!float.IsFinite(ratio) || ratio < 0.5f || ratio > 0.9f)
+			throw new ArgumentOutOfRangeException(nameof(ratio), ratio, $"Track '{Name}': swing runs from 0.5 (straight) to 0.9.");
+		if (stepTicks <= 0)
+			throw new ArgumentOutOfRangeException(nameof(stepTicks), stepTicks, $"Track '{Name}': swing's step is more than 0 ticks.");
+		SwingRatio = ratio;
 		SwingStep = stepTicks;
 		return this;
 	}

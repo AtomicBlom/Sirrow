@@ -28,7 +28,9 @@ public sealed class MusicPlayer : IDisposable
 	private MusicSource? _source;
 	private AudioSource? _played;   // what the engine plays: the song's source, or an AheadSource wrapping it
 	private SongState? _swapping;   // a swap posted but not yet known taken
-	private int _asked = -1;
+									// The section start (SectionStarts) a conducted song's function was last asked at as it began, and in its last beat
+	private int _askedEarly = -1;
+	private int _askedLate = -1;
 
 	/// <summary>
 	/// A player for <paramref name="audio"/>, its songs on <paramref name="bus"/>. With <paramref name="aheadSeconds"/> above
@@ -114,7 +116,7 @@ public sealed class MusicPlayer : IDisposable
 		_source = new MusicSource(state);
 		_played = _aheadSeconds > 0 ? new AheadSource(_audio, _source, _aheadSeconds) : _source;
 		_swapping = null;
-		_asked = -1;
+		_askedEarly = _askedLate = -1;
 		_audio.Play(_played, _bus);
 	}
 
@@ -158,8 +160,9 @@ public sealed class MusicPlayer : IDisposable
 	}
 
 	/// <summary>
-	/// Once a frame: asks a conducted song's function for its next section near the end of each section, and lets go of a
-	/// song that has faded out.
+	/// Once a frame: asks a conducted song's function for its next section as each section starts and again in its last
+	/// beat, and lets go of a song that has faded out. The answer in the last beat is the one that counts; the first stands
+	/// if a long frame skips past the last beat, so the section never repeats only because the game was late.
 	/// </summary>
 	/// <exception cref="InvalidOperationException">The song's conduct function threw (the inner exception); the section loops meanwhile.</exception>
 	public void Update()
@@ -177,9 +180,19 @@ public sealed class MusicPlayer : IDisposable
 		var song = source.State.Song;
 		if (!song.Conducted || _swapping is not null)
 			return;
-		if (source.TicksLeft > song.TicksPerBeat || source.SectionStarts == _asked)
-			return;
-		_asked = source.SectionStarts;
+		var starts = source.SectionStarts;
+		if (source.TicksLeft <= song.TicksPerBeat)
+		{
+			if (starts == _askedLate)
+				return;
+			_askedLate = _askedEarly = starts;
+		}
+		else
+		{
+			if (starts == _askedEarly)
+				return;
+			_askedEarly = starts;
+		}
 		var current = song.Sections[Math.Min(source.SectionIndex, song.Sections.Length - 1)];
 		_conductor.Current = current.Source;
 		_conductor.Repeats = source.Pass;
@@ -191,6 +204,8 @@ public sealed class MusicPlayer : IDisposable
 		catch (Exception ex)
 		{
 			source.Post(new MusicCommand { Kind = MusicCommandKind.Next, A = current.Source.Index });
+			// Asked no more this section: it would only throw again
+			_askedEarly = _askedLate = starts;
 			throw new InvalidOperationException($"Song '{song.Song.Name}': its conduct function threw, and the section loops: {ex.Message}", ex);
 		}
 		if (next is null || next.Song != song.Song)
@@ -256,10 +271,7 @@ public sealed class MusicPlayer : IDisposable
 	{
 		var index = CheckTrack(track).Index;
 		_muted[track.Name] = muted;
-		if (_swapping is { } swapping)
-			swapping.Muted[index] = muted;
-		else
-			Post(MusicCommandKind.Mute, index, value: muted ? 1f : 0f);
+		Post(MusicCommandKind.Mute, index, value: muted ? 1f : 0f);
 	}
 
 	/// <summary>Silences every track not soloed while any is. Kept, by the track's name, through a swap.</summary>
@@ -267,10 +279,7 @@ public sealed class MusicPlayer : IDisposable
 	{
 		var index = CheckTrack(track).Index;
 		_soloed[track.Name] = solo;
-		if (_swapping is { } swapping)
-			swapping.Soloed[index] = solo;
-		else
-			Post(MusicCommandKind.Solo, index, value: solo ? 1f : 0f);
+		Post(MusicCommandKind.Solo, index, value: solo ? 1f : 0f);
 	}
 
 	/// <summary>A track's gain over its level, in decibels: 0 as written. Kept, by the track's name, through a swap.</summary>
@@ -278,28 +287,22 @@ public sealed class MusicPlayer : IDisposable
 	{
 		var index = CheckTrack(track).Index;
 		_gainDb[track.Name] = db;
-		var gain = Dsp.Units.DbToGain(db);
-		if (_swapping is { } swapping)
-		{
-			swapping.TrackGain[index] = gain;
-			swapping.Instruments[index].Gain = swapping.Song.Tracks[index].Gain * gain;
-		}
-		else
-			Post(MusicCommandKind.TrackGain, index, value: gain);
+		Post(MusicCommandKind.TrackGain, index, value: Dsp.Units.DbToGain(db));
 	}
 
 	/// <summary>
 	/// Holds a placement on or off whatever its condition, from the next bar line (or its next phrase), or back to
 	/// <see cref="PlacementState.Auto"/>. Kept, by its section's and its own name, through a swap.
 	/// </summary>
+	/// <remarks>
+	/// Every steering call is a command the audio thread takes in order, applied to the song swapped in if one is waiting,
+	/// so a call made between a <see cref="Swap"/> and the bar line it lands at is kept.
+	/// </remarks>
 	public void Force(Placement placement, PlacementState state)
 	{
 		var (section, index) = Find(placement);
 		_forced[(placement.Section.Name, placement.Name)] = state;
-		if (_swapping is { } swapping)
-			swapping.Forced[section][index] = state;
-		else
-			Post(MusicCommandKind.Force, section, index, (int)state);
+		Post(MusicCommandKind.Force, section, index, (int)state);
 	}
 
 	// What the game steered, by name, into a song about to be swapped in: mutes, solos, gains and forced placements

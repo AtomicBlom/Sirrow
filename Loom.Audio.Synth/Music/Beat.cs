@@ -102,7 +102,7 @@ public sealed class Beat : Part
 				var tick = offset + hit.Tick;
 				if (tick >= limit)
 					continue;
-				into.Add(new SongEvent { Tick = tick, Length = step, Note = 60f, Piece = kit.IndexOf(hit.Piece), Velocity = hit.Velocity });
+				into.Add(new SongEvent { Tick = context.Swung(tick), Length = step, Note = 60f, Piece = kit.IndexOf(hit.Piece), Velocity = hit.Velocity });
 			}
 		}
 	}

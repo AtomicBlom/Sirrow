@@ -258,16 +258,29 @@ internal sealed class ChipVoice
 
 	/// <summary>
 	/// Renders <paramref name="n"/> frames into its group's buffers and the sends'; returns whether the note has ended
-	/// (its heard operators idle and the block silent, or faded out).
+	/// (its heard operators idle and the block silent, or faded out). A note played for a time is let go at its frame,
+	/// not at the block's start: the stretch is cut there and <paramref name="released"/> numbers its release.
 	/// </summary>
 	public bool Render(int n, float[][] scratch, float[] groupLeft, float[] groupRight, float[] spaceLeft, float[] spaceRight,
-		float[] echoLeft, float[] echoRight, float[] keyLeft, float[] keyRight, float[] gainSlots)
+		float[] echoLeft, float[] echoRight, float[] keyLeft, float[] keyRight, float[] gainSlots, ref long released)
 	{
 		LastPeak = 0f;
 		var ended = false;
-		for (var offset = 0; offset < n; offset += ControlFrames)
-			ended = RenderStretch(offset, Math.Min(ControlFrames, n - offset), scratch, groupLeft, groupRight, spaceLeft, spaceRight,
+		for (var offset = 0; offset < n;)
+		{
+			var frames = Math.Min(ControlFrames, n - offset);
+			if (GateFrames > 0 && GateFrames < frames)
+				frames = GateFrames;
+			ended = RenderStretch(offset, frames, scratch, groupLeft, groupRight, spaceLeft, spaceRight,
 				echoLeft, echoRight, keyLeft, keyRight, gainSlots);
+			offset += frames;
+			if (GateFrames > 0)
+			{
+				GateFrames -= frames;
+				if (GateFrames <= 0)
+					Release(++released);
+			}
+		}
 		return ended;
 	}
 

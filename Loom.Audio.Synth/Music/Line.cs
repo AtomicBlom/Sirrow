@@ -137,6 +137,7 @@ public sealed class Line : Part
 				var tick = offset + note.Tick;
 				if (tick >= limit)
 					continue;
+				tick = context.Swung(tick);
 				var degree = note.Degree;
 				var accidental = note.Accidental;
 				if (line._overChords)

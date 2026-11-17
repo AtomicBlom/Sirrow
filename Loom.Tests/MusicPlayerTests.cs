@@ -102,6 +102,82 @@ public class MusicPlayerTests
 	}
 
 	[Test]
+	public void A_jump_lets_go_of_what_was_sounding()
+	{
+		var song = new Song("jumpy");
+		var tone = song.Track("tone", ChipRig.Tone);
+		var held = song.Section("held", 2);
+		held.Play(tone, Line.Quarters("1 - - - | - - - -"));
+		var quiet = song.Section("quiet", 2);
+		quiet.Play(tone, Line.Quarters(". . . . | . . . ."));
+		using var rig = new MusicRig();
+		rig.Player.Play(song);
+		rig.Step(MusicRig.Bar / 2);
+		rig.Player.Jump(quiet);
+		rig.Step(2 * MusicRig.Bar);
+
+		rig.Rms(MusicRig.Bar / 4, MusicRig.Bar / 2).ShouldBeGreaterThan(0.1f);
+		// The two-bar note let go at the jump's bar line, and gone within its release
+		rig.Rms(MusicRig.Bar + MusicRig.Bar / 8, MusicRig.Bar / 2).ShouldBeLessThan(0.001f);
+	}
+
+	[Test]
+	public void A_mute_after_a_swap_is_taken_but_before_the_game_hears_of_it_is_kept()
+	{
+		using var rig = new MusicRig();
+		rig.Player.Play(Held("held", "1", bars: 4));
+		rig.Step(MusicRig.Bar / 2);
+		var rebuilt = Held("held", "1", bars: 4);
+		rig.Player.Swap(rebuilt);
+		// The bar line passes, taking the swap, with no Update since: the player still thinks the swap is waiting
+		rig.Session.Render(MusicRig.Bar);
+		rig.Player.Mute(rebuilt.Tracks[0], true);
+		rig.Step(2 * MusicRig.Bar);
+
+		rig.Rms(MusicRig.Bar + MusicRig.Bar / 8, MusicRig.Bar / 4).ShouldBeGreaterThan(0.1f);
+		// The next bar's note is the muted track's, and silent
+		rig.Rms(2 * MusicRig.Bar + MusicRig.Bar / 8, MusicRig.Bar / 2).ShouldBeLessThan(0.001f);
+	}
+
+	[Test]
+	public void A_part_whose_level_follows_a_cue_at_zero_is_silent_from_its_first_downbeat()
+	{
+		var level = new Cue("level", 0f);
+		var song = new Song("levels");
+		var first = song.Section("first", 1);
+		first.Play(song.Track("tone", ChipRig.Tone), Line.Quarters(". . . ."));
+		var second = song.Section("second", 1);
+		second.Play(song.Track("click", MusicRig.Click), Line.Quarters("1 1 1 1")).Level(level);
+		song.Order(first, second);
+		using var rig = new MusicRig();
+		rig.Player.Play(song);
+		rig.Step(2 * MusicRig.Bar);
+
+		// The section starts at a block's first frame, after the block's levels were steered for the section before
+		rig.Rms(MusicRig.Bar, MusicRig.Beat).ShouldBeLessThan(1e-4f);
+	}
+
+	[Test]
+	public void A_conducted_song_moves_on_though_no_update_came_in_its_last_beat()
+	{
+		var song = new Song("conducted");
+		var tone = song.Track("tone", ChipRig.Tone);
+		var a = song.Section("a", 1);
+		a.Play(tone, Line.Quarters("1 - - -"));
+		var b = song.Section("b", 1);
+		b.Play(tone, Line.Quarters("5 - - -"));
+		song.Conduct(now => now.Current == a ? b : a);
+		using var rig = new MusicRig();
+		rig.Player.Play(song);
+		rig.Step(256);
+		// A frame longer than the section's last beat: nothing asks there
+		rig.Session.Render(MusicRig.Bar);
+		rig.Player.Update();
+
+		rig.Player.Position.Section.ShouldBe("b");
+	}
+
+	[Test]
 	public void A_cue_set_before_play_is_in_force_from_the_first_bar()
 	{
 		var cue = new Cue("energy");
@@ -172,8 +248,12 @@ public class MusicPlayerTests
 		using var rig = new MusicRig();
 		rig.Player.Play(song);
 
+		// Asked as the section starts: it throws then, and isn't asked again that section
 		Should.Throw<InvalidOperationException>(() => rig.Step(MusicRig.Bar)).InnerException.ShouldBeOfType<InvalidDataException>();
-		rig.Step(MusicRig.Bar / 2);
+		rig.StepTo(MusicRig.Bar);
+		// The section looped, and is asked again as it starts over
+		Should.Throw<InvalidOperationException>(() => rig.StepTo(MusicRig.Bar + MusicRig.Bar / 2));
+		rig.StepTo(MusicRig.Bar + MusicRig.Bar / 2);
 		rig.Player.Position.Section.ShouldBe("a");
 		rig.Player.Position.AbsoluteBar.ShouldBe(1);
 	}

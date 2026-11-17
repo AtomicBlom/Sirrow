@@ -82,4 +82,20 @@ public class SongCompileTests
 		song.Section("a", 1).Play(song.Track("tone", ChipRig.Tone), Line.Quarters("1 - - -")).When(deep);
 		Should.Throw<InvalidOperationException>(() => CompiledSong.Compile(song, song.Scale)).Message.ShouldContain("deeper");
 	}
+
+	[Test]
+	public void A_swung_strum_moves_all_its_strings_together()
+	{
+		var song = new Song("swung");
+		var guitar = song.Track("guitar", ChipRig.Tone).Swing(0.667f);
+		song.Section("a", 1, "I").Play(guitar, Strum.Eighths("DU.. ....").Voicing(Voicing.Triad));
+		var events = CompiledSong.Compile(song, song.Scale).Sections[0].Placements[0].Events;
+
+		// The up stroke is on the second eighth (480), swung to 640: every one of its strings starts at or after it, spread
+		// as an unswung stroke's are
+		var up = events.Where(e => e.Tick >= 480).Select(e => e.Tick).ToArray();
+		up.Length.ShouldBe(4);   // a triad laid as a guitar strums it: root, fifth, octave and the third above
+		up.Min().ShouldBe(640);
+		(up.Max() - up.Min()).ShouldBeLessThan(100);
+	}
 }

@@ -429,7 +429,11 @@ chip.SetMacro(guitar, new Macro(1), 0.6f);
   `ChipSend.Key`, which is never heard: it is what keyed effects listen to (§5, `Compressor`). The master's own
   effects run last. Effects are factories, since each chip makes its own instances.
 - **Stealing.** Past its voices a note takes the voice released longest, or else the oldest, fading it out over 128
-  samples first. `Stats.StolenVoices` counts them.
+  samples first. `Stats.StolenVoices` counts them. A note let go (`NoteOff`, `AllNotesOff`) while it waits for its
+  stolen voice to fade never starts. When every voice is already fading out for another note, a new one is lost, and
+  `Stats.DroppedNotes` counts it: raise `Voices` if that climbs.
+- **Notes played for a time** (`Play(…, seconds)`, or a song's notes) are let go at their frame, not at the start of the
+  block they end in, so a note shorter than a block still sounds.
 - **Mono** patches have one voice: a new note moves it, gliding, with its envelopes left alone.
 - Each call checks its arguments on the game thread, then queues an event the chip takes at its next block, so a note
   is heard within a block. Nothing allocates once the chip plays. A note is a MIDI number and may be fractional;
@@ -540,8 +544,9 @@ frets (`Power` and `Triad` too); `Spread(ms)` sets the time between strings (12 
 ### Sections, tracks and placements
 
 A track is a patch or a kit, with its octave (degree 1's, 4 unless set), level, pan, `Humanise(timingMs, velocity)` (each
-note up to that late, never early, the same every time), `Swing(ratio)` (0.667 a triplet feel) and macros, each
-following a cue or held. Tracks share effects through groups (`Fx` makes the effects). A section is some bars long over
+note late by up to twice `timingMs`, `timingMs` on average, never early, the same every time), `Swing(ratio)` (0.667 a
+triplet feel: each off-beat step of the grid moves late before anything is spread off it, so a strum's strings move
+together) and macros, each following a cue or held. Out-of-range values for these throw rather than clamp. Tracks share effects through groups (`Fx` makes the effects). A section is some bars long over
 its chords; `section.Play(track, part)` places a part in it, repeated through the section if shorter, cut at its end if
 longer. A placement can be `Named`, play only `When` a condition holds, follow a cue's `Level`, and `EndWith` a fill that
 takes the section's last bar each pass.
@@ -551,9 +556,11 @@ macros from `from` at the section's first bar to `to` at its end, over whatever 
 It is how a build opens or thins a filter towards a drop. In every other section the macro is the track's own again (0
 if the track never set it).
 
-`Order(a, a, b)` plays sections in turn, then from the first again; `Conduct(c => …)` chooses the next one in code a beat
-before each section ends, from the `Conductor`'s current section, its repeats and the cues. With neither, the first
-section loops.
+`Order(a, a, b)` plays sections in turn, then from the first again; `Conduct(c => …)` chooses the next one in code, from
+the `Conductor`'s current section, its repeats and the cues. It is asked as each section starts and again a beat before
+it ends, and the later answer counts; the first stands if a long frame skips the last beat, so a hitch never repeats a
+section. Keep it a plain function of what it is given: it is called twice a section. One that throws is asked no more
+that section, which loops. With neither, the first section loops. A `Jump` lets go of what was sounding.
 
 ### Cues and conditions
 
