@@ -23,6 +23,12 @@ public abstract record Condition
 	/// <summary>The condition in words: "energy above 0.35", "(mood is Calm or energy below 0.2)", "not ...".</summary>
 	public sealed override string ToString() => Describe();
 
+	/// <summary>
+	/// Whether it holds for the cues as <paramref name="value"/> gives them: each comparison as written, without the
+	/// sequencer's latching, so a tool can say whether a part's condition is met.
+	/// </summary>
+	public abstract bool IsMet(Func<CueBase, float> value);
+
 	// Its words, each kind its own
 	internal abstract string Describe();
 

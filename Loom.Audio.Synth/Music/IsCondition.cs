@@ -1,8 +1,12 @@
 namespace Loom.Audio.Synth.Music;
 
-internal sealed record IsCondition(CueBase Cue, float Value) : Condition
+/// <summary>A choice cue at one of its options, or any cue at one value.</summary>
+public sealed record IsCondition(CueBase Cue, float Value) : Condition
 {
 	internal override IEnumerable<CueBase> Cues => [Cue];
+
+	/// <inheritdoc/>
+	public override bool IsMet(Func<CueBase, float> value) => value(Cue) == Value;
 
 	internal override string Describe()
 	{
