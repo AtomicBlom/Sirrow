@@ -24,7 +24,7 @@ public sealed class Placement
 	internal bool OnPhraseValue { get; private set; }
 	internal ParsedPart? Fill { get; private set; }
 
-	/// <summary>The same placement under a name of its own, as the workbench shows it: "forest motif".</summary>
+	/// <summary>The same placement under a name of its own, as the workbench shows it: "calm motif".</summary>
 	public Placement Named(string name)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);

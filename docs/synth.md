@@ -564,8 +564,8 @@ that section, which loops. With neither, the first section loops. A `Jump` lets 
 
 ### Cues and conditions
 
-A `Cue` is a level the game sets (`music.Set(Cues.Intensity, speed / topSpeed)`); a `Cue<T>` a choice of an enum's
-values (`music.Set(Cues.Biome, Biome.Forest)`). A cue is known by its object, so a game keeps its cues in static fields
+A `Cue` is a level the game sets (`music.Set(Groove.Energy, 0.7f)`); a `Cue<T>` a choice of an enum's values
+(`music.Set(Moods.Now, Mood.Calm)`). A cue is known by its object, so a game keeps its cues in static fields
 and every song uses those; one a song doesn't use is remembered for the next. Conditions are `cue.Above(x)`,
 `cue.Below(x)`, `choice.Is(value)`, combined with `&`, `|` and `!`. **`Above(x)` turns true at x and false again only
 below x − 0.05** (`Below` mirrors it), so a part doesn't flap while a cue hovers.
@@ -593,8 +593,8 @@ four-operator parts in eighths) renders at 31× real time on a Snapdragon X lapt
 thread only copies it: the same samples as live (`MusicPlayerTests`). The cost is latency. A cue or a command is heard
 up to the lead later, so a part comes in at the bar line after the cue and the lead, and `Position`, `IsActive` and
 `TrackPeak` run up to the lead ahead of the ear. A game wants it. A workbench passes 0 (the default), so what it
-shows matches what is heard. In RubberTrack it took the music off the audio thread's deadline: the thread's load while
-driving fell from 2.4% to 1.0% of it, its peak from 7% to 2%.
+shows matches what is heard. Measured in a game playing eight-track songs over its own sound effects, it took the music
+off the audio thread's deadline: the thread's load fell from 2.4% to 1.0% of it, its peak from 7% to 2%.
 
 ---
 
@@ -646,8 +646,8 @@ protected override void Update(FrameTime time)
 }
 ```
 
-`WorkbenchView.TransportExtras` is a panel at the end of the transport bar for the host's own controls (RubberTrack's
-Studio puts a toggle for a recorded car's sound there). `CaptureState` and `RestoreState` keep the song, whether it
+`WorkbenchView.TransportExtras` is a panel at the end of the transport bar for the host's own controls (a toggle for a
+sound of the game's own to hear under the music, say). `CaptureState` and `RestoreState` keep the song, whether it
 played and in which section, the loop, a scale played in place of the song's, the cues, the mutes, solos, gains and
 forced placements, and the bench's patch, kit, octave and velocity, all by name, as JSON (`WorkbenchStateJson`).
 

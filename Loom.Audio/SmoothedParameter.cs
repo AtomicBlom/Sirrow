@@ -4,8 +4,8 @@ namespace Loom.Audio;
 
 /// <summary>
 /// A continuous control the game sets and an <see cref="AudioSource"/> reads, eased toward its target with a time
-/// constant rather than in a straight line across one block: an engine note's RPM, a tyre's squeal, a gain the game
-/// sets each step. Use it for a value the game moves often and in steps (60 times a second), which an
+/// constant rather than in a straight line across one block: a motor's revs, a wind's strength, a gain the game sets each
+/// step. Use it for a value the game moves often and in steps (60 times a second), which an
 /// <see cref="AudioParameter"/> would follow as a staircase of short ramps; use <see cref="AudioParameter"/> where the
 /// game's value should be reached exactly within the block (a level set by a menu).
 /// </summary>
@@ -81,7 +81,10 @@ public sealed class SmoothedParameter(float initial, float seconds = 0.03f)
 		return _current = _target + _error;
 	}
 
-	/// <summary>Audio thread: jumps straight to <see cref="Value"/>, for a change that should not glide (a new race starting).</summary>
+	/// <summary>
+	/// Audio thread: jumps straight to <see cref="Value"/>, for a change that should not glide (a sound starting over from somewhere
+	/// new).
+	/// </summary>
 	public float Snap()
 	{
 		_error = 0f;

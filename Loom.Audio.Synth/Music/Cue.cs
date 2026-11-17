@@ -1,7 +1,7 @@
 namespace Loom.Audio.Synth.Music;
 
 /// <summary>
-/// A level the game tells the music, usually 0 to 1: how fast, how close the race is. Parts come and go on it
+/// A level the game tells the music, usually 0 to 1: how much is going on, how near the end is. Parts come and go on it
 /// (<see cref="Above"/>, <see cref="Below"/>), a part's volume follows it (<see cref="Placement.Level"/>), and a patch's
 /// macro can follow it (<see cref="TrackMacro.Follow"/>).
 /// </summary>

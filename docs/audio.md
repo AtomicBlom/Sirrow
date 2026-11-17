@@ -400,7 +400,7 @@ The game and the audio thread share no lock, so a source takes its controls thro
 | Type | For | Game thread | Audio thread |
 |---|---|---|---|
 | `AudioParameter` | A continuous value where only the latest matters, reached within the block: a cutoff, a level set from a menu. | Set `Value` whenever it likes. | `Ramp(info.Frames)` once a block, then `Next()` once a sample: a straight line from where it was to `Value`. `Snap()` jumps straight there, for a control where a step is what's wanted (a waveform choice). |
-| `SmoothedParameter` | A continuous value the game moves often and in steps, eased with a time constant (`seconds`, after which it has gone 63% of the way): an engine's RPM, a tyre's squeal, set every physics step. An `AudioParameter` would follow it as a staircase of short ramps. | Set `Value` whenever it likes. | `Prepare(rate)` in `OnStart`; `Begin()` once a block, then `Next()` once a sample, or `Skip(frames)` for a value read once a block. `Snap()` jumps straight there. |
+| `SmoothedParameter` | A continuous value the game moves often and in steps, eased with a time constant (`seconds`, after which it has gone 63% of the way): a motor's revs, a wind's strength, set every physics step. An `AudioParameter` would follow it as a staircase of short ramps. | Set `Value` whenever it likes. | `Prepare(rate)` in `OnStart`; `Begin()` once a block, then `Next()` once a sample, or `Skip(frames)` for a value read once a block. `Snap()` jumps straight there. |
 | `AudioEventQueue<T>` | Discrete events that must all arrive, in order: note on, note off, a trigger. `T` is a small struct. | `TryPost(event)` (false when full), or `Post`, which throws when full. | `TryTake(out event)` at the start of `Render`, until it returns false. |
 
 An `AudioEventQueue<T>` has a fixed capacity (rounded up to a power of two) and is strictly one thread posting and one
@@ -444,8 +444,8 @@ Audio.Play(_music, musicBus);
   waiting and waking every 2 ms while there are ahead sources (with `AudioWork.Update`, `Audio.Update()` does it). The
   audio thread only copies from the ring, so its cost there is a copy, whatever the inner source costs.
 - **The lead is latency.** A change to the inner source's controls is heard up to the lead later. Music can take that
-  (the music player's `aheadSeconds`, [synth.md](synth.md)); a sound effect, a car's engine or a click of the UI should
-  play directly.
+  (the music player's `aheadSeconds`, [synth.md](synth.md)); a sound effect, a sound that follows the player's hands or a click
+  of the UI should play directly.
 - **A play renders the whole lead at once,** on the frame thread, so it sounds from its first block.
 - **If the work falls behind,** the block plays silence where nothing waits, counted in `Underruns`, and the source
   carries on from where it stopped, none of it lost. `FramesHeard` and `FramesRendered` say how far each side has got.
@@ -500,7 +500,7 @@ allocations, as Loom's render loop is, keeps its audio safe as well.
 On Android the load reads high for the work done: AAudio runs its callback on a thread the scheduler keeps on a slow,
 clocked-down core until the load asks for more, against a deadline of a burst or two (2 ms at 96 frames). A mix that
 costs 2% of a core measured offline can read 30% there, with peaks past 50%, and still not drop out: on a Galaxy S23
-Ultra, a race of three minutes at 30% (peaks to 78%) added no underruns to the ten its start made, while the mix was
+Ultra, three minutes of a game's busiest play at 30% (peaks to 78%) added no underruns to the ten its start made, while the mix was
 compiling and the app loading on every core. The underruns, not the load, say whether it drops out.
 
 ---

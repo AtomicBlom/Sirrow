@@ -7,9 +7,9 @@ namespace Loom.Audio.Synth.Music;
 /// song's parts as they say; a rebuilt song is swapped in at the next bar line without a break.
 /// <code>
 /// var music = new MusicPlayer(Audio, musicBus);
-/// music.Play(RacePark.Build());
-/// music.Set(Cues.Intensity, speed / topSpeed);   // each frame
-/// music.Update();                                // each frame
+/// music.Play(Groove.Build());
+/// music.Set(Groove.Energy, energy);   // each frame, 0 to 1
+/// music.Update();                     // each frame
 /// </code>
 /// </summary>
 /// <remarks>Every call is for the thread that made the engine. The song is compiled on that thread; the audio thread only reads what it made.</remarks>

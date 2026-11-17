@@ -7,7 +7,7 @@ namespace Loom.Audio.Synth.Music;
 /// sections and the parts played in each, and the order they come in. Build one in a method that makes it anew each
 /// time (so hot reload rebuilds it), then hand it to a <see cref="MusicPlayer"/>.
 /// <code>
-/// var song = new Song("race park") { Tempo = 128, Scale = Scale.Minor(Note.E) };
+/// var song = new Song("groove") { Tempo = 128, Scale = Scale.Minor(Note.E) };
 /// var drums = song.Track("drums", kit);
 /// var bass = song.Track("bass", bassPatch).Octave(2);
 /// var verse = song.Section("verse", 4, "i | VI | III | VII");

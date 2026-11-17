@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 
 namespace Loom.Audio.Synth.Music;
 
-/// <summary>A choice the game tells the music, one of an enum's values: which biome the car is in.</summary>
+/// <summary>A choice the game tells the music, one of an enum's values: which place the player is in, a mood.</summary>
 /// <typeparam name="T">The enum.</typeparam>
 /// <param name="name">Its name.</param>
 /// <param name="initial">Its value before the game sets one.</param>
