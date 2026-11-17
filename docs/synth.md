@@ -750,10 +750,11 @@ A music project is an ordinary class library whose assembly names its catalog:
 library carries it without referencing any UI.
 
 `Loom.Audio.Workbench.Projects` does the work, with no window, so tests and other hosts use it as the app does:
-- **`MusicProject.OpenAsync(csproj)`** asks a design-time build (`dotnet msbuild -t:Compile` with the compiler's
-  execution skipped, out of process, restoring first if the project never was) for the compiler's command line, and
-  makes it a Roslyn project: sources, references, analyzers and generators, editorconfigs and options. It asks again only
-  when a `.csproj`, `.props` or `.targets` changes or a file comes or goes.
+- **`MusicProject.OpenAsync(csproj)`** asks a design-time build (`dotnet msbuild -t:PrepareResources;Compile` with
+  the compiler's execution skipped, out of process, restoring first if the project never was, in the host's
+  configuration when it says which) for the compiler's command line, and makes it a Roslyn project: sources,
+  references, embedded resources, analyzers and generators, editorconfigs and options. It asks again only when a
+  `.csproj`, `.props` or `.targets` changes or a file comes or goes.
 - **A save** (150 ms after the last write) updates that file in the compilation, compiles it whole, generators included,
   emits it to memory with a portable PDB, and loads it into a new collectible `AssemblyLoadContext`. A whole compile has
   no rude edits: a new type, a changed lambda's captures or a type's changed shape all reload. The newest build waits in
@@ -775,7 +776,8 @@ library carries it without referencing any UI.
 A host with more to offer than the music (a game's mix to play into, its own transport controls) hosts the workbench
 itself over `MusicProject` and `WorkbenchProject`, as `loom-workbench`'s `WorkbenchApp` does in a page of code.
 
-A compile of the template takes about a second cold and a few hundred milliseconds warm, well under a bar.
+RubberTrack's audio library (its songs, patches, kits and their samples) opens and compiles in about 1.7 s, and compiles
+again after a save in 0.35 to 0.45 s on a Snapdragon X: well under a bar (2.2 s at 108 bpm).
 
 ### What hot reload can and can't do
 
