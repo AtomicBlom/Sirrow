@@ -25,6 +25,16 @@ internal sealed class ChipVoice
 	private readonly float[] _tapRight = new float[Patch.MaxOutputs];
 	private Svf _filterRight;
 	private float _filterCutoff;
+	// What a stretch works out, kept from the last one that worked it out, and worked out again only when what it comes
+	// from has moved: the note's frequency, the filter's coefficients. NaN until the note's first stretch
+	private float _lastNote = float.NaN, _lastHz;
+	private float _lastOctaves = float.NaN, _lastCutoffScale = float.NaN;
+	// Each mode's frequency its resonator was last set to, by operator and mode
+	private readonly float[] _modeHz = new float[Patch.MaxOperators * Mode.Max];
+
+	// What stays the same for the whole of a note, worked out as it starts: the patch's gain, and a single channel's pan
+	private float _patchGain;
+	private float _panLeft, _panRight;
 	private readonly int[] _stringSlot = new int[Patch.MaxOperators];
 	private readonly DelayLine[] _strings = [new(LineFrames), new(LineFrames)];
 	private readonly DelayLine _jet = new(LineFrames);
@@ -102,6 +112,14 @@ internal sealed class ChipVoice
 		GainSlot = e.GainSlot;
 		SlotGain = -1f;
 		LastPeak = 0f;
+		_lastNote = float.NaN;
+		_lastOctaves = float.NaN;
+		_lastCutoffScale = float.NaN;
+		Array.Fill(_modeHz, float.NaN);
+		_patchGain = Units.DbToGain(patch.GainDb);
+		var angle = (Math.Clamp(patch.Pan + NotePan, -1f, 1f) + 1f) * (MathF.PI / 4f);
+		_panLeft = MathF.Cos(angle);
+		_panRight = MathF.Sin(angle);
 
 		var hz = Units.NoteToHz(e.Note);
 		var strings = 0;
@@ -129,6 +147,8 @@ internal sealed class ChipVoice
 			op.Previous = 0f;
 
 			op.LossScale = 1f;
+			op.DetuneRatio = spec.DetuneCents == 0f ? 1f : Units.CentsToRatio(spec.DetuneCents);
+			op.LossPeriod = float.NaN;
 			_attackFrames = MathF.Max(_attackFrames, spec.Envelope.Attack * _rate);
 			switch (spec.Kind)
 			{
@@ -333,7 +353,12 @@ internal sealed class ChipVoice
 			? patch.PitchDropSemitones * MathF.Exp(-6.9078f * age / patch.PitchDropSeconds)
 			: 0f;
 		var note = CurrentNote + vibrato + drop;
-		var hz = Units.NoteToHz(note);
+		if (note != _lastNote)
+		{
+			_lastNote = note;
+			_lastHz = Units.NoteToHz(note);
+		}
+		var hz = _lastHz;
 		// The drop bends a fixed operator as well: a kick's sine at 50 Hz whatever the note still falls to it
 		var dropRatio = drop == 0f ? 1f : MathF.Pow(2f, drop / 12f);
 
@@ -355,7 +380,7 @@ internal sealed class ChipVoice
 			foreach (var macro in patch.Macros)
 				if (macro.Target == MacroTarget.OperatorLevel && macro.Operator == i)
 					level *= macro.From + (macro.To - macro.From) * macros[macro.Macro.Id];
-			var freq = spec.FixedHz > 0f ? spec.FixedHz * dropRatio : spec.DetuneCents == 0f ? hz * spec.Ratio : hz * spec.Ratio * Units.CentsToRatio(spec.DetuneCents);
+			var freq = spec.FixedHz > 0f ? spec.FixedHz * dropRatio : spec.DetuneCents == 0f ? hz * spec.Ratio : hz * spec.Ratio * op.DetuneRatio;
 			var dt = freq / rate;
 			// The envelope a block at a time, times the level, for the operators that have one
 			var env = _env.AsSpan(0, n);
@@ -391,14 +416,22 @@ internal sealed class ChipVoice
 					_filterEnvelope.Next();
 			}
 			var octaves = filterSpec.EnvelopeOctaves * env + filterSpec.KeyTrack * (note - 60f) / 12f + filterSpec.Velocity * 4f * (Velocity - 1f);
-			var cutoff = Math.Clamp(filterSpec.CutoffHz * MathF.Pow(2f, octaves) * cutoffScale, 20f, 0.45f * rate);
-			_filter.Set(cutoff, filterSpec.Q, rate);
-			_filterCutoff = cutoff;
+			// The coefficients worked out again only when the cutoff can have moved; both sides alike
+			if (octaves != _lastOctaves || cutoffScale != _lastCutoffScale)
+			{
+				_lastOctaves = octaves;
+				_lastCutoffScale = cutoffScale;
+				var cutoff = Math.Clamp(filterSpec.CutoffHz * MathF.Pow(2f, octaves) * cutoffScale, 20f, 0.45f * rate);
+				_filter.Set(cutoff, filterSpec.Q, rate);
+				if (patch.Wide)
+					_filterRight.Set(cutoff, filterSpec.Q, rate);
+				_filterCutoff = cutoff;
+			}
 		}
 
 		var driveGain = 1f + 8f * Math.Clamp(drive, 0f, 1f);
 		var driveNorm = 1f / MathF.Sqrt(driveGain);
-		var gain = Velocity * Velocity * Units.DbToGain(patch.GainDb) * gainScale * Instrument.Gain;
+		var gain = Velocity * Velocity * _patchGain * gainScale * Instrument.Gain;
 		if (patch.TremoloDepth > 0f && patch.TremoloHz > 0f)
 		{
 			_tremolo.Set(patch.TremoloHz * n, rate);
@@ -416,9 +449,8 @@ internal sealed class ChipVoice
 		}
 		else
 		{
-			var angle = (pan + 1f) * (MathF.PI / 4f);
-			toLeft = MathF.Cos(angle);
-			toRight = MathF.Sin(angle);
+			toLeft = _panLeft;
+			toRight = _panRight;
 		}
 		// The heard operators mixed, then filtered and driven, each a pass over the block
 		var mix = _mix;
@@ -457,10 +489,7 @@ internal sealed class ChipVoice
 		{
 			Filtered(mix, n, filterSpec.Kind, ref _filter);
 			if (wide)
-			{
-				_filterRight.Set(_filterCutoff, filterSpec.Q, rate);
 				Filtered(mixRight, n, filterSpec.Kind, ref _filterRight);
-			}
 		}
 		if (drive > 0f)
 		{
@@ -470,12 +499,18 @@ internal sealed class ChipVoice
 				for (var s = 0; s < n; s++)
 					mixRight[s] = MathF.Tanh(mixRight[s] * driveGain) * driveNorm;
 		}
+		// How loud it is before its gain, which decides whether the note has ended: only wanted once every heard operator
+		// has finished, which nothing after this changes
+		var idle = HeardIdle();
 		var peak = 0f;
-		for (var s = 0; s < n; s++)
-			peak = MathF.Max(peak, MathF.Abs(mix[s]));
-		if (wide)
+		if (idle)
+		{
 			for (var s = 0; s < n; s++)
-				peak = MathF.Max(peak, MathF.Abs(mixRight[s]));
+				peak = MathF.Max(peak, MathF.Abs(mix[s]));
+			if (wide)
+				for (var s = 0; s < n; s++)
+					peak = MathF.Max(peak, MathF.Abs(mixRight[s]));
+		}
 
 		// Gain, the fade of a voice being stolen or choked, pan, and the sends
 		// A gain slot the game moves while the note sounds (a part's level), ramped across the block from where it was
@@ -498,8 +533,12 @@ internal sealed class ChipVoice
 			}
 		Fade = fade;
 		var heard = 0f;
-		for (var s = 0; s < n; s++)
-			heard = MathF.Max(heard, MathF.Max(MathF.Abs(mix[s]), MathF.Abs(mixRight[s])));
+		if (wide)
+			for (var s = 0; s < n; s++)
+				heard = MathF.Max(heard, MathF.Max(MathF.Abs(mix[s]), MathF.Abs(mixRight[s])));
+		else
+			for (var s = 0; s < n; s++)
+				heard = MathF.Max(heard, MathF.Abs(mix[s]));
 		// A wide patch's two channels each hold what a centred one's single channel becomes only after its pan (1 / √2 of
 		// it a side): so the two read alike on a meter when they sound alike
 		LastPeak = MathF.Max(LastPeak, heard * gain * (wide ? 1.4142135f : 1f));
@@ -553,7 +592,7 @@ internal sealed class ChipVoice
 
 		if (FadeStep > 0f && fade <= 0f)
 			return true;
-		return HeardIdle() && peak < Silent;
+		return idle && peak < Silent;
 	}
 
 	// A block through the voice's filter. The filter is worked on as a local copy, so its state stays in registers
@@ -751,7 +790,14 @@ internal sealed class ChipVoice
 		var period = _rate / (hz * spec.Ratio);
 		var smooth = 0.5f * Math.Clamp(spec.Damping, 0f, 1f);
 		var delay = Math.Clamp(period - smooth, 2f, LineFrames - 6f);
-		var loss = MathF.Pow(10f, -3f * period / (MathF.Max(spec.DecaySeconds * op.KeyTime, 0.01f) * _rate)) * op.LossScale;
+		// The loss each time round, worked out again only when the period or the scale (a release) has moved
+		if (period != op.LossPeriod || op.LossScale != op.LossScaleSeen)
+		{
+			op.LossPeriod = period;
+			op.LossScaleSeen = op.LossScale;
+			op.Loss = MathF.Pow(10f, -3f * period / (MathF.Max(spec.DecaySeconds * op.KeyTime, 0.01f) * _rate)) * op.LossScale;
+		}
+		var loss = op.Loss;
 		var drivers = spec.Drivers;
 		var previous = op.Previous;
 		for (var s = 0; s < n; s++)
@@ -795,7 +841,13 @@ internal sealed class ChipVoice
 			if (f >= top)
 				continue;
 			ref var ring = ref _modes[index * Mode.Max + m];
-			ring.Set(f, mode.DecaySeconds * op.KeyTime, _rate);
+			// Set again only when its frequency has moved: a fixed mode once a note, one on the note as the pitch moves
+			ref var setHz = ref _modeHz[index * Mode.Max + m];
+			if (f != setHz)
+			{
+				setHz = f;
+				ring.Set(f, mode.DecaySeconds * op.KeyTime, _rate);
+			}
 			var gain = mode.Level * level;
 			for (var s = 0; s < n; s++)
 				o[s] += gain * ring.Tick(struck[s]);
@@ -855,5 +907,9 @@ internal sealed class ChipVoice
 		public float LossScale;
 		public float KeyGain;     // the operator's level for this note, from how it follows the keyboard
 		public float KeyTime;     // and what its decay, release and ring are multiplied by
+		public float DetuneRatio;  // its detune as a ratio, for the note
+		public float LossPeriod;   // a string's period and loss scale its loss was last worked out for, and that loss
+		public float LossScaleSeen;
+		public float Loss;
 	}
 }
