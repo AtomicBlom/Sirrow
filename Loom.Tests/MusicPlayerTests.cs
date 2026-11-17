@@ -241,10 +241,11 @@ public class MusicPlayerTests
 	}
 
 	[Test]
-	public async Task A_song_prepared_on_another_thread_plays_on_the_engines()
+	public void A_song_prepared_on_another_thread_plays_on_the_engines()
 	{
 		using var rig = new MusicRig(aheadSeconds: 0.1);
-		var prepared = await Task.Run(() => rig.Player.Prepare(Held("held", "5")));
+		// Waited for here rather than awaited: the engine belongs to this thread, and an await may come back on another
+		var prepared = Task.Run(() => rig.Player.Prepare(Held("held", "5"))).GetAwaiter().GetResult();
 		rig.Player.Play(prepared);
 		rig.Step(MusicRig.Bar);
 
