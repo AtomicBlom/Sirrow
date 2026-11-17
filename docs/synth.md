@@ -653,8 +653,9 @@ off the audio thread's deadline: the thread's load fell from 2.4% to 1.0% of it,
 
 A window for writing music in code, kept apart from `Loom.Audio.Synth` because it is UI (SUIsei) and the synth is not.
 A song stays C# in the game's own files. The workbench plays it, shows it, lets you steer it, and plays it again each time
-the file is saved under `dotnet watch`. [`samples/HelloSynth`](../samples/HelloSynth) is the sample: a demo song, four
-patches and a kit.
+the file is saved: `loom-workbench` opens any music project and compiles it again in-process with Roslyn (below,
+"Opening a project"), and an app hosting the workbench over its own catalog can run under `dotnet watch` instead.
+[`samples/HelloSynth`](../samples/HelloSynth) is the sample of that: a demo song, four patches and a kit.
 
 What it shows, one job at a time: a rail down the left gives the middle of the window to **Arrange**, **Patch** or
 **Kit**, and the keyboard docked along the bottom plays what that mode has chosen.
@@ -703,7 +704,7 @@ protected override void LoadContent()
 	_painter = UIPainter.Create(Engine, _ui);
 	_view = _ui.CreateRoot(UILayer.Default);
 	_workbench = new Workbench(Audio, Audio.CreateBus("music"), DemoCatalog.Make());
-	if (Load() is { } state)
+	if (_state.Load() is { } state)                  // a WorkbenchStateFile
 		_workbench.RestoreState(state);              // where it was before a restart
 	_view.Root.Content = new WorkbenchView(_workbench.ViewModel);
 	PushInputLayer(new SUIseiInputLayer(_ui));
@@ -714,7 +715,7 @@ protected override void Update(FrameTime time)
 {
 	_workbench.HandleInput(Input);                   // the computer's keys
 	_workbench.Update(time.DeltaSeconds);            // the player, the meters, and a rebuild after an edit
-	// ... CaptureState() saved to a file when it changes
+	// ... _state.Save(_workbench.CaptureState()) once a second: written only when it changed
 }
 ```
 
@@ -733,7 +734,53 @@ to C, as a piano's keys lie. `Z` and `X` move it down and up an octave. `Space` 
 section. `Ctrl K` opens the command palette; `Escape` closes the palette, the library over the view, or a build's error.
 While a text field has the keys (the palette, the library's filter), the workbench leaves them alone.
 
+### Opening a project: `loom-workbench`
+
+`Loom.Audio.Workbench.App` builds `loom-workbench`, the workbench over any music project:
+
+```
+loom-workbench <project.csproj | its folder>     the workbench over that project
+loom-workbench new <folder>                      a project to start from (a catalog, a cue, two patches, a song), opened
+```
+
+A music project is an ordinary class library whose assembly names its catalog:
+`[assembly: MusicCatalog(typeof(Catalog))]` (`Loom.Audio.Synth.Music`). The workbench reads the class's public static
+`Songs`, `Patches` and `Kits` (lists of `(string Name, Func<T> Build)`), `Cues` (`IReadOnlyList<CueBase>`) and
+`string? MacroName(int id)`, whichever it has. The attribute is the synth's, not the workbench's, so a game's audio
+library carries it without referencing any UI.
+
+`Loom.Audio.Workbench.Projects` does the work, with no window, so tests and other hosts use it as the app does:
+- **`MusicProject.OpenAsync(csproj)`** asks a design-time build (`dotnet msbuild -t:Compile` with the compiler's
+  execution skipped, out of process, restoring first if the project never was) for the compiler's command line, and
+  makes it a Roslyn project: sources, references, analyzers and generators, editorconfigs and options. It asks again only
+  when a `.csproj`, `.props` or `.targets` changes or a file comes or goes.
+- **A save** (150 ms after the last write) updates that file in the compilation, compiles it whole, generators included,
+  emits it to memory with a portable PDB, and loads it into a new collectible `AssemblyLoadContext`. A whole compile has
+  no rude edits: a new type, a changed lambda's captures or a type's changed shape all reload. The newest build waits in
+  `TakeBuild()`; each frame, **`WorkbenchProject.Update()`** hands its catalog to the workbench
+  (`Workbench.UseCatalog`, which keeps the song, the selections and the cue values by name, swapping the song at the
+  next bar) or its errors to the build pill (`Workbench.ReportBuild`, "Songs/Tune.cs(12,5): error CS1002: ; expected"),
+  and releases the build before it, whose context unloads once nothing playing refers to it.
+- **Loom is shared, never loaded again.** A build's context resolves whatever the host can (Loom above all, whose types
+  the workbench and the music must share) from the host's own context, and the rest of the project's references from
+  their paths (a project reference from the assembly built beside its reference assembly). So every reference the host
+  has loaded must be the very build it runs: a project built against another Loom, or a reference rebuilt since the
+  workbench started, is refused with a message naming both files (`SharedReferences`, by module version id). A change
+  to the project's own references (another project of the game's) needs the workbench restarted.
+- **`ProjectTemplate.Create(folder)`** is what `new` writes. Its `.csproj` references `Loom.Audio.dll` and
+  `Loom.Audio.Synth.dll` from the workbench's own folder, so the two always match.
+- **What it was doing** is kept beside the project, in `.loom/workbench.json` (`WorkbenchStateFile.Beside`), restored
+  once the first build has played.
+
+A host with more to offer than the music (a game's mix to play into, its own transport controls) hosts the workbench
+itself over `MusicProject` and `WorkbenchProject`, as `loom-workbench`'s `WorkbenchApp` does in a page of code.
+
+A compile of the template takes about a second cold and a few hundred milliseconds warm, well under a bar.
+
 ### What hot reload can and can't do
+
+Under `dotnet watch` (an app hosting the workbench over its own catalog, as HelloSynth does); `loom-workbench` has none
+of these limits but the first.
 
 - **A song, a patch and a kit are built by a method or a property, every time.** A `static readonly` field is
   initialised once and hot reload never runs its initialiser again.
