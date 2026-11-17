@@ -392,6 +392,17 @@ The tube is the touchiest. It must be blown at a sustain of 0.8 or more (a `Leve
 0.8) to speak below E4; it eases its own pressure below G#4 so low notes stay in their register, and it compensates
 its loop's filters' delay at each note, so it holds within 20 cents from G3 to C6.
 
+**A patch as data, and as code.** A built `Patch` is read-only data: its `Operators` (`OperatorSpec`, whose
+`Modulators` and `Drivers` name earlier operators by index), `Outputs`, `Filter`, the voice's settings and `Macros`.
+`PatchSpec.From(patch)` copies it into lists and settings a tool can change, and `spec.ToPatch()` builds it again
+through the builder, so every rule above is checked and a broken spec throws the same `PatchException`.
+`PatchCode.Write(patch)` writes the `Patch.Build` property that builds it, as a person would have written it: every
+operator up to the last that another reads gets a variable (so the builder makes them in the same order), defaults are
+left off, `Env.Decay` and `Env.Gate` are recognised, and a macro is named by the function given (`Macros.Bright`) or
+`new Macro(n)`. What it writes builds a patch equal to the one it was given. `SynthChip.Replace(instrument, patch)`
+swaps an instrument's patch while it plays: notes sounding finish on the old one, and its macros, gain and mute carry
+over. `AudioTap`, added to a bus with `AudioEngine.AddEffect`, keeps the latest frames through it for a tool to draw.
+
 ## 7. Samples and kits
 
 `SampleData` is a mono recording at its own rate (`SampleData.From(AudioDecoder.Decode(bytes))`). A `SampleZone` says
@@ -659,8 +670,18 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
   while it holds (`Condition.IsMet`), and auto, on and off to force it. The part chosen is drawn below, as notes over
   the bar. Beside it **the cues**: a slider for a `Cue` with the levels parts wait on marked over it and what waits on
   each, a button per value for a `Cue<T>`; one the song doesn't read is dimmed.
-- **Patch.** The patch chosen, played from the keyboard, with its macros as sliders.
-- **Kit.** The kit chosen, a pad per piece.
+- **Patch**, the patch designer. The patch chosen as data (`PatchSpec`): its operators drawn as a graph in render order
+  (an operator a column right of the deepest it reads; modulation amber with its index, driving teal and dashed, the
+  heard to Out), the voice after them as a chain, and a scope and spectrum of what the bus plays (an `AudioTap` on it).
+  Beside it an inspector: the operator chosen (heard and at what level and pan, pitch, its kind's settings, level and
+  velocity, across the keyboard, modulated or driven only by an operator before it, the envelope; listen to it alone,
+  move it, delete it), the voice, the macros with their live values, and the C# that builds it (`PatchCode`), copied
+  through the host (`Workbench.CopyText`). Every edit builds the patch again as `Patch.Build` checks it and is heard
+  from the next note (`SynthChip.Replace`); what the builder refuses is shown while the last that built plays on. A
+  rebuild after a code change keeps the edits; Revert and "Hear its code" go back to the patch as its code has it. A
+  catalog names its macros for the code (`WorkbenchCatalog.MacroName`).
+- **Kit.** The kit chosen, a pad per piece; and the beat sketcher, a bar of sixteenths per piece (a click turns a step
+  to `x`, `X`, `o` or off), looped through the sequencer on a player of its own and copied as `Beat.Sixteenths(…)`.
 - **The keyboard**, docked: two octaves, what it plays, how hard, its octave, the chip's load.
 - **The command palette** (Ctrl K): the catalog, the song's sections and the commands, found by every word typed.
 
