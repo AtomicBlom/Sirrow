@@ -3,7 +3,7 @@
 	     each platform's host fills (SDL 3 on the desktop, AAudio on Android, an AudioWorklet in the browser). Depends only on
 	     the BCL, as Loom.Input does, so every host and the headless tests share it. -->
 	<PropertyGroup>
-		<TargetFramework>net10.0</TargetFramework>
+		<TargetFramework>net11.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<!-- The engine and everything downstream of it must stay NativeAOT-clean. -->

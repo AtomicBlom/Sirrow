@@ -2,7 +2,7 @@
 	<!-- Software synthesis over Loom.Audio: DSP building blocks, effects, a fixed-voice synthesizer chip with patches as
 	     data, and music written as code (scales, notation, songs, a sequencer). Depends only on Loom.Audio and the BCL. -->
 	<PropertyGroup>
-		<TargetFramework>net10.0</TargetFramework>
+		<TargetFramework>net11.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<IsAotCompatible>true</IsAotCompatible>
