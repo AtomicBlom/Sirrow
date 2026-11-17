@@ -3,7 +3,7 @@ using Loom.Audio.Synth;
 
 namespace Loom.Tests;
 
-/// <summary>Decoding without an engine: WAV and Ogg Vorbis to samples at the file's own rate.</summary>
+/// <summary>Decoding without an engine: WAV, Ogg Vorbis and FLAC to samples at the file's own rate.</summary>
 public class AudioDecoderTests
 {
 	private static byte[] Fixture(string name) => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "AudioFixtures", name));
@@ -33,6 +33,20 @@ public class AudioDecoderTests
 		using var engine = new AudioEngine(new OfflineAudioDevice(data.SampleRate, 256));
 
 		var clip = engine.LoadOgg(ogg);
+
+		data.Channels.ShouldBe(2);
+		data.SampleRate.ShouldBe(44_100);
+		clip.Samples.ShouldBe(data.Samples);
+	}
+
+	[Test]
+	public void A_flac_decodes_to_what_the_engine_loads_at_its_own_rate()
+	{
+		var flac = Fixture("flac-stereo-44k.flac");
+		var data = AudioDecoder.Decode(flac);
+		using var engine = new AudioEngine(new OfflineAudioDevice(data.SampleRate, 256));
+
+		var clip = engine.LoadFlac(flac);
 
 		data.Channels.ShouldBe(2);
 		data.SampleRate.ShouldBe(44_100);
