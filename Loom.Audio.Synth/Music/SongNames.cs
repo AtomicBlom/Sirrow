@@ -5,7 +5,7 @@ using Loom.Audio.Synth.Chip;
 namespace Loom.Audio.Synth.Music;
 
 /// <summary>
-/// How a song file names what a built song holds by reference (<see cref="SongFile.ToJson"/>): its patches, kits and
+/// How a song file names what a built song holds by reference (<see cref="SongFile.ToJson(Song, SongNames?)"/>): its patches, kits and
 /// macros by the names a game's catalog gives them, and its groups' effects, which a built song can't say.
 /// </summary>
 public sealed class SongNames

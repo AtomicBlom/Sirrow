@@ -657,8 +657,8 @@ the file is saved: `loom-workbench` opens any music project and compiles it agai
 "Opening a project"), and an app hosting the workbench over its own catalog can run under `dotnet watch` instead.
 [`samples/HelloSynth`](../samples/HelloSynth) is the sample of that: a demo song, four patches and a kit.
 
-What it shows, one job at a time: a rail down the left gives the middle of the window to **Arrange**, **Patch** or
-**Kit**, and the keyboard docked along the bottom plays what that mode has chosen.
+What it shows, one job at a time: a rail down the left gives the middle of the window to **Arrange**, **Patch**,
+**Kit** or **Files**, and the keyboard docked along the bottom plays what that mode has chosen.
 - **The transport.** The song chosen, play and stop, the position (section, bar, beat), the tempo and the scale, the
   loop on the section playing, and the host's own controls. At its right, the last build's status as a pill: red when
   the song didn't build, and a click opens its error over the view (the last song that built plays on).
@@ -694,6 +694,16 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
   catalog names its macros for the code (`WorkbenchCatalog.MacroName`).
 - **Kit.** The kit chosen, a pad per piece; and the beat sketcher, a bar of sixteenths per piece (a click turns a step
   to `x`, `X`, `o` or off), looped through the sequencer on a player of its own and copied as `Beat.Sixteenths(…)`.
+- **Eject and bring back.** In the roll, **Eject notation** makes the part's notation code (its condition and name stay
+  data) and **Eject placement** the whole placement: the C# that makes it (`PartCode`) is added to the song's own half of
+  its class and the file points at it (`"part": { "code": "Riff" }`, `"code": "Riff"`). In Patch, **Eject to code** does
+  the same for a patch (`PatchCode`, a `partial` property). A piece that is code says where it is; **Bring back as data**
+  writes what its code builds back to the file, if a file can say it, and takes its member out. The host does the C#
+  (`IMusicCode`; `Loom.Audio.Workbench.Projects`' `MusicCode`, with Roslyn), and what is ejected plays once the project
+  has compiled. A member renamed or taken out by hand fails the build at the generated call.
+- **Files** (the rail's last button): every song's and patch's file and the C# that is theirs; the one chosen shown as it
+  is, copied whole or a piece at a time: a C# file's class or any member (its indent taken off), a song's track, section
+  or part, a patch's operator, each written alone as its file writes it.
 - **The keyboard**, docked: two octaves, what it plays, how hard, its octave, the chip's load.
 - **The command palette** (Ctrl K): the catalog, the song's sections and the commands, found by every word typed.
 

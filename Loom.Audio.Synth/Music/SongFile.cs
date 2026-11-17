@@ -144,7 +144,7 @@ public static class SongFile
 			["name"] = section.Name,
 			["bars"] = section.Bars,
 			["chords"] = section.ChordText,
-			["parts"] = new JsonArray([.. section.Placements.Select(PlacementJson)]),
+			["parts"] = new JsonArray([.. section.Placements.Select(ToJson)]),
 		};
 		if (section.Sweeps.Count > 0)
 			json["sweeps"] = new JsonArray([.. section.Sweeps.Select(s => new JsonObject
@@ -157,12 +157,16 @@ public static class SongFile
 		return json;
 	}
 
-	private static JsonObject PlacementJson(Placement placement)
+	/// <summary>
+	/// A placement as a file writes it among a section's parts: its track, name, part, condition,
+	/// level, phrase and fill.
+	/// </summary>
+	public static JsonObject ToJson(Placement placement)
 	{
 		var json = new JsonObject { ["track"] = placement.Track.Name };
 		if (placement.Name != placement.Track.Name)
 			json["name"] = placement.Name;
-		foreach (var (key, value) in PartJson(placement.Part))
+		foreach (var (key, value) in ToJson(placement.Part))
 			json[key] = value?.DeepClone();
 		if (placement.Condition is { } condition)
 			json["when"] = ConditionText.Write(condition);
@@ -171,11 +175,15 @@ public static class SongFile
 		if (placement.IsOnPhrase)
 			json["onPhrase"] = true;
 		if (placement.FillPart is { } fill)
-			json["endWith"] = PartJson(fill);
+			json["endWith"] = ToJson(fill);
 		return json;
 	}
 
-	private static JsonObject PartJson(Part part)
+	/// <summary>
+	/// A part as a file writes it: a line's, a beat's or a strum's keys, for a part brought back from
+	/// code to data.
+	/// </summary>
+	public static JsonObject ToJson(Part part)
 	{
 		switch (part)
 		{
