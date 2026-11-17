@@ -64,24 +64,45 @@ public static class AudioAnalysis
 		if (mono.Length < 2)
 			throw new ArgumentException("A spectrum needs at least two samples.", nameof(mono));
 		var n = 1 << (31 - int.LeadingZeroCount(mono.Length));
-		var re = new double[n];
-		var im = new double[n];
+		var bins = new float[n / 2 + 1];
+		Spectrum(mono, new double[n], new double[n], bins);
+		return bins;
+	}
+
+	/// <summary>
+	/// The same spectrum, over the first N samples of <paramref name="mono"/>, N the length of <paramref name="real"/>, into
+	/// <paramref name="bins"/>, with <paramref name="real"/> and <paramref name="imaginary"/> as its working space: so a
+	/// view drawing it every frame keeps its buffers and allocates nothing.
+	/// </summary>
+	/// <exception cref="ArgumentException"><paramref name="real"/> isn't a power of two of at least two, or
+	/// <paramref name="imaginary"/> isn't as long, <paramref name="mono"/> is shorter, or <paramref name="bins"/> isn't
+	/// N/2 + 1 long.</exception>
+	public static void Spectrum(ReadOnlySpan<float> mono, Span<double> real, Span<double> imaginary, Span<float> bins)
+	{
+		var n = real.Length;
+		if (n < 2 || (n & (n - 1)) != 0)
+			throw new ArgumentException("A spectrum's working space is a power of two long, at least two.", nameof(real));
+		if (imaginary.Length != n)
+			throw new ArgumentException("The imaginary part is as long as the real part.", nameof(imaginary));
+		if (mono.Length < n)
+			throw new ArgumentException($"A spectrum over {n} samples needs at least that many; there are {mono.Length}.", nameof(mono));
+		if (bins.Length != n / 2 + 1)
+			throw new ArgumentException($"A spectrum over {n} samples has {n / 2 + 1} bins.", nameof(bins));
 		var windowSum = 0.0;
 		for (var i = 0; i < n; i++)
 		{
 			var w = Hann(i, n);
 			windowSum += w;
-			re[i] = mono[i] * w;
+			real[i] = mono[i] * w;
 		}
-		Fft(re, im);
-		var result = new float[n / 2 + 1];
-		for (var k = 0; k < result.Length; k++)
-			result[k] = (float)(2 * Math.Sqrt(re[k] * re[k] + im[k] * im[k]) / windowSum);
-		return result;
+		imaginary.Clear();
+		Fft(real, imaginary);
+		for (var k = 0; k < bins.Length; k++)
+			bins[k] = (float)(2 * Math.Sqrt(real[k] * real[k] + imaginary[k] * imaginary[k]) / windowSum);
 	}
 
 	/// <summary>
-	/// The frequency of the strongest bin of <see cref="Spectrum"/> between <paramref name="minHz"/> and
+	/// The frequency of the strongest bin of <see cref="Spectrum(ReadOnlySpan{float})"/> between <paramref name="minHz"/> and
 	/// <paramref name="maxHz"/>, refined between bins by a parabola through the logs of it and its neighbours. A strongest
 	/// bin at either end of the range reads as its centre.
 	/// </summary>
@@ -119,9 +140,11 @@ public static class AudioAnalysis
 	private static double Hann(int n, int length) => 0.5 - 0.5 * Math.Cos(2 * Math.PI * n / (length - 1));
 
 	// An iterative radix-2 FFT in place; re and im are a power of two long
-	private static void Fft(double[] re, double[] im)
+	private static void Fft(Span<double> re, Span<double> im)
 	{
 		var n = re.Length;
+		if (im.Length != n)
+			throw new ArgumentException("The real and imaginary parts are as long as each other.", nameof(im));
 		for (int i = 1, j = 0; i < n; i++)
 		{
 			var bit = n >> 1;
