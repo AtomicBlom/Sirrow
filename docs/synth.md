@@ -760,7 +760,8 @@ While a text field has the keys (the palette, the library's filter), the workben
 `Loom.Audio.Workbench.App` builds `loom-workbench`, the workbench over any music project:
 
 ```
-loom-workbench <project.csproj | its folder>     the workbench over that project
+loom-workbench <project.csproj | its folder> [--extension <csproj>]
+                                                 the workbench over that project, with its extension
 loom-workbench new <folder>                      a project to start from (a catalog, a cue, two patches, a song), opened
 ```
 
@@ -794,8 +795,28 @@ library carries it without referencing any UI.
 - **What it was doing** is kept beside the project, in `.loom/workbench.json` (`WorkbenchStateFile.Beside`), restored
   once the first build has played.
 
-A host with more to offer than the music (a game's mix to play into, its own transport controls) hosts the workbench
-itself over `MusicProject` and `WorkbenchProject`, as `loom-workbench`'s `WorkbenchApp` does in a page of code.
+**Extensions: a game's own tools.** A game that has more to offer than the music (its mix to play into, so a song
+sounds as it will in the game; its own controls; a recorded car under the music) writes an extension, in an assembly
+of its own: `[assembly: WorkbenchExtension(typeof(StudioExtras))]` on a public class implementing `IWorkbenchExtension`
+(in `Loom.Audio.Workbench`, so it needs no Roslyn or MSBuild):
+
+- `Output(AudioEngine)`: the bus the music plays into, or null for the workbench's own.
+- `Catalog`: its own build of the music, to play at once while the project's first compile runs, or null to wait.
+- `Attach(WorkbenchExtensionContext)`: its controls added to the transport's end, the command line the workbench didn't
+  take (`--recording race.zip`, read with `Option`).
+- `Update(seconds)` each frame; `MusicBuilt(Assembly)` with each new build of the music, for an extension that takes
+  something of the music's own from the build (RubberTrack's engine bench takes its engine's numbers from it, so a
+  change to them is heard as it is saved); `Dispose`.
+
+The music project names its extension's project with an MSBuild property,
+`<LoomWorkbenchExtension>../Game.Studio/Game.Studio.csproj</LoomWorkbenchExtension>`, or `--extension <csproj>` gives
+one (`--extension none` for none). `loom-workbench` builds it in its own configuration and loads it once into the
+default context before the window opens, where the music's builds share what it references, as they share Loom; its
+own references load from beside it. It isn't reloaded: a change to it needs the workbench restarted. One built against
+another build of what the workbench runs is refused, as a project is (`SharedReferences`; a library built for several
+frameworks, SUIsei, is compared only between builds for the same framework). `loom-workbench` runs on the newest .NET
+installed (`RollForward` `LatestMajor`), so it opens a project, and loads an extension, that targets a newer .NET than
+Loom does.
 
 RubberTrack's audio library (its songs, patches, kits and their samples) opens and compiles in about 1.7 s, and compiles
 again after a save in 0.35 to 0.45 s on a Snapdragon X: well under a bar (2.2 s at 108 bpm).
