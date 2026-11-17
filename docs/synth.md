@@ -562,7 +562,9 @@ never starts halfway.
 says the section, bar and beat; `Jump`, `LoopSection`, `Mute`, `Solo`, `SetTrackGain` and `Force` (a placement held on or
 off) steer it; `IsActive` and `TrackPeak` read it, for a workbench. **`Swap(song)`** takes the song rebuilt at the next
 bar line, in the scale playing, carrying on in the section of the same name at the same bar (or the first section if that
-name is gone), at the new tempo; the absolute bar keeps counting.
+name is gone), at the new tempo; the absolute bar keeps counting. It plays on a chip of its own, made from the rebuilt
+song, so an edit to its groups, their effects or its voices is heard at once; the old chip lets go of its notes and rings
+out under the new one for two seconds, fading over the last quarter.
 
 The sequencer splits each block at every event, bar line and section end and hands the chip its notes between slices, so
 timing is exact to the frame. It allocates nothing once playing. **Cost:** a song of eight tracks (a kit, a bass and six

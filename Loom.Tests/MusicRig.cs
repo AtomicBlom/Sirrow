@@ -66,6 +66,8 @@ internal sealed class MusicRig : IDisposable
 
 	public float Rms(int from, int length) => AudioAnalysis.Rms(Left().AsSpan(from, length));
 
+	public float Level(int from, int length, float hz) => AudioAnalysis.LevelAt(Left().AsSpan(from, length), hz, Rate);
+
 	public void Dispose()
 	{
 		Player.Dispose();

@@ -139,6 +139,8 @@ public sealed class MusicPlayer : IDisposable
 		state.SectionMap = map;
 		Tell(state);
 		Carry(state);
+		// Its chip made ready here, before the audio thread first sees it through the queue
+		state.PrepareCore(_audio.SampleRate);
 		_swapping = state;
 		source.Post(new MusicCommand { Kind = MusicCommandKind.Swap, Payload = state });
 	}

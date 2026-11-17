@@ -41,6 +41,7 @@ internal sealed class SongState
 		Soloed = new bool[song.Tracks.Length];
 		TrackGain = new float[song.Tracks.Length];
 		Array.Fill(TrackGain, 1f);
+		Core = new ChipCore(song.ChipOptions);
 	}
 
 	public CompiledSong Song { get; }
@@ -63,4 +64,17 @@ internal sealed class SongState
 	public bool[] Muted { get; }
 	public bool[] Soloed { get; }
 	public float[] TrackGain { get; }
+	// The chip this song plays on: its own, so a swap brings its groups, effects and voices with it
+	public ChipCore Core { get; }
+
+	/// <summary>
+	/// Prepares the chip for <paramref name="rate"/> and gives it the song's instruments. Before the audio thread first
+	/// sees this state: from the source's start, or on the game thread before a swap is posted.
+	/// </summary>
+	public void PrepareCore(int rate)
+	{
+		Core.Prepare(rate);
+		for (var t = 0; t < Instruments.Length; t++)
+			Core.Handle(new ChipEvent { Kind = ChipEventKind.AddInstrument, Instrument = t, Payload = Instruments[t] });
+	}
 }

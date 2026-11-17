@@ -16,7 +16,17 @@ internal sealed class MusicSource : AudioSource
 	// short of a beat it should be on
 	private const double Epsilon = 1e-6;
 
-	private readonly ChipCore _core;
+	// The song's own chip (SongState.Core), replaced at a swap; the game thread reads its stats
+	private volatile ChipCore _core;
+	// The chip a swap replaced, rendered on for a while so its notes and effects' tails ring out rather than stop: the
+	// frames left, and where in the block the swap fell
+	private const double OutgoingSeconds = 2.0;
+	private const double OutgoingFadeSeconds = 0.25;
+	private ChipCore? _outgoing;
+	private int _outgoingLeft;
+	private int _outgoingFrom;
+	private readonly float[] _outgoingL = new float[AudioEffect.MaxBlockFrames];
+	private readonly float[] _outgoingR = new float[AudioEffect.MaxBlockFrames];
 	private readonly AudioEventQueue<MusicCommand> _commands = new(256);
 	private SongState _state;
 	private int _rate;
@@ -60,7 +70,7 @@ internal sealed class MusicSource : AudioSource
 	{
 		_state = state;
 		_publishedState = state;
-		_core = new ChipCore(state.Song.ChipOptions);
+		_core = state.Core;
 		_section = state.Song.Order.Length > 0 ? state.Song.Order[0] : 0;
 	}
 
@@ -92,20 +102,13 @@ internal sealed class MusicSource : AudioSource
 		if (_rate != 0)
 			throw new InvalidOperationException("A song's player plays its source once: play the song again for another.");
 		_rate = sampleRate;
-		_core.Prepare(sampleRate);
-		AddInstruments(_state);
+		_state.PrepareCore(sampleRate);
 		_ticksPerFrame = TicksPerFrame(_state.Song);
 		for (var slot = 0; slot < _state.Levels.Length; slot++)
 			_state.Levels[slot] = -1f;
 	}
 
 	private double TicksPerFrame(CompiledSong song) => song.Tempo * Ticks.PerBeat / (60.0 * _rate);
-
-	private void AddInstruments(SongState state)
-	{
-		for (var t = 0; t < state.Instruments.Length; t++)
-			_core.Handle(new ChipEvent { Kind = ChipEventKind.AddInstrument, Instrument = t, Payload = state.Instruments[t] });
-	}
 
 	protected override bool Render(Span<float> left, Span<float> right, in AudioRenderInfo info)
 	{
@@ -145,10 +148,40 @@ internal sealed class MusicSource : AudioSource
 			}
 		}
 		_core.Render(left[start..n], right[start..n]);
+		RenderOutgoing(left, right, n);
 		_tick += n * _ticksPerFrame;
 		_frame += n;
 		Publish();
 		return true;
+	}
+
+	// The chip a swap replaced, from where in the block the swap fell, added in under a fade over its last moments
+	private void RenderOutgoing(Span<float> left, Span<float> right, int n)
+	{
+		if (_outgoing is not { } outgoing)
+			return;
+		var from = _outgoingFrom;
+		_outgoingFrom = 0;
+		var frames = n - from;
+		if (frames <= 0)
+			return;
+		var l = _outgoingL.AsSpan(0, frames);
+		var r = _outgoingR.AsSpan(0, frames);
+		l.Clear();
+		r.Clear();
+		outgoing.Render(l, r);
+		var fadeFrames = (int)(OutgoingFadeSeconds * _rate);
+		for (var s = 0; s < frames; s++)
+		{
+			var gain = Math.Min(1f, (float)(_outgoingLeft - s) / fadeFrames);
+			if (gain <= 0f)
+				break;
+			left[from + s] += l[s] * gain;
+			right[from + s] += r[s] * gain;
+		}
+		_outgoingLeft -= frames;
+		if (_outgoingLeft <= 0)
+			_outgoing = null;
 	}
 
 	private void TakeCommands()
@@ -323,11 +356,20 @@ internal sealed class MusicSource : AudioSource
 		NextEvent();
 	}
 
-	// The song rebuilt (or another), taken at a bar line: the section of the same name, at the same bar, the new tempo
+	// The song rebuilt (or another), taken at a bar line: the section of the same name, at the same bar, the new tempo, on
+	// the new song's own chip. The old chip lets go of its notes and rings out under the new one for a while
 	private void TakeSwap(SongState swap, double barTick, int f)
 	{
-		var old = _state;
 		_swap = null;
+		_core.Handle(new ChipEvent { Kind = ChipEventKind.AllOff });
+		_outgoing = _core;
+		_outgoingLeft = (int)(OutgoingSeconds * _rate);
+		_outgoingFrom = f;
+		_core = swap.Core;
+		// What a humanised track held back was meant for the old song's instruments
+		_pendingCount = 0;
+		_nextPending = long.MaxValue;
+
 		var section = _section < swap.SectionMap.Length ? swap.SectionMap[_section] : 0;
 		var song = swap.Song;
 		var tick = barTick < song.Sections[section].LengthTicks ? barTick : 0;
@@ -343,9 +385,7 @@ internal sealed class MusicSource : AudioSource
 		_next = -1;
 		if (song.Order.Length > 0)
 			_orderPosition = Math.Max(0, Array.IndexOf(song.Order, section));
-		AddInstruments(swap);
 		ApplyMutes(swap);
-		_ = old;
 	}
 
 	// Whether a placement's condition holds now, run over its postfix steps

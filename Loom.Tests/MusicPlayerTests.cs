@@ -2,6 +2,7 @@ using System.Diagnostics;
 
 using Loom.Audio;
 using Loom.Audio.Synth.Chip;
+using Loom.Audio.Synth.Effects;
 using Loom.Audio.Synth.Music;
 
 namespace Loom.Tests;
@@ -53,6 +54,51 @@ public class MusicPlayerTests
 		rig.Pitch(MusicRig.Bar + MusicRig.Bar / 8, MusicRig.Bar / 4).ShouldBe(261.6, 3);
 		rig.Pitch(2 * MusicRig.Bar + MusicRig.Bar / 4, MusicRig.Bar / 2).ShouldBe(523.3, 5);
 		rig.Player.Position.AbsoluteBar.ShouldBe(2);
+	}
+
+	private static Song Grouped(string name, float outputDb, bool second)
+	{
+		var song = new Song(name);
+		var loud = song.Group("loud", Fx.Distortion(driveDb: 0f, outputDb: outputDb));
+		var tone = song.Track("tone", ChipRig.Tone, loud);
+		var section = song.Section("a", 1);
+		section.Play(tone, Line.Quarters("1 - - -"));
+		if (second)
+		{
+			var other = song.Group("other", Fx.Distortion(driveDb: 0f, outputDb: 0f));
+			section.Play(song.Track("high", ChipRig.Tone, other), Line.Quarters("5 - - -"));
+		}
+		return song;
+	}
+
+	[Test]
+	public void A_swap_brings_the_new_songs_groups()
+	{
+		using var rig = new MusicRig();
+		rig.Player.Play(Grouped("grouped", -6f, second: false));
+		rig.Step(MusicRig.Bar / 2);
+		rig.Player.Swap(Grouped("grouped", -6f, second: true));
+		Should.NotThrow(() => rig.Step(MusicRig.Bar * 2));
+
+		// The track the swap added plays through the group it added: the fifth sounds beside the root
+		var start = 2 * MusicRig.Bar - MusicRig.Bar / 2;
+		rig.Level(start, MusicRig.Bar / 2, 392f).ShouldBeGreaterThan(0.01f);
+		rig.Level(start, MusicRig.Bar / 2, 261.6f).ShouldBeGreaterThan(0.01f);
+	}
+
+	[Test]
+	public void A_swap_takes_the_new_songs_effect_settings()
+	{
+		using var rig = new MusicRig();
+		rig.Player.Play(Grouped("grouped", -20f, second: false));
+		rig.Step(MusicRig.Bar / 2);
+		var before = rig.Rms(MusicRig.Bar / 8, MusicRig.Bar / 4);
+		rig.Player.Swap(Grouped("grouped", 0f, second: false));
+		rig.Step(MusicRig.Bar * 2);
+
+		// 20 dB louder through the rebuilt group's distortion, its old chip long rung out
+		var after = rig.Rms(MusicRig.Bar + MusicRig.Bar / 8, MusicRig.Bar / 4);
+		(after / before).ShouldBeGreaterThan(5f);
 	}
 
 	[Test]
