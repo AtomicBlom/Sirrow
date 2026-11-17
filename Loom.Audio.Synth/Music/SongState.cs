@@ -67,14 +67,20 @@ internal sealed class SongState
 	// The chip this song plays on: its own, so a swap brings its groups, effects and voices with it
 	public ChipCore Core { get; }
 
+	private bool _corePrepared;
+
 	/// <summary>
-	/// Prepares the chip for <paramref name="rate"/> and gives it the song's instruments. Before the audio thread first
-	/// sees this state: from the source's start, or on the game thread before a swap is posted.
+	/// Prepares the chip for <paramref name="rate"/> and gives it the song's instruments, once. Before the audio thread
+	/// first sees this state: on any thread before a play (<see cref="MusicPlayer.Prepare"/>), on the game thread before a
+	/// swap is posted, or from the source's start.
 	/// </summary>
 	public void PrepareCore(int rate)
 	{
+		if (_corePrepared)
+			return;
 		Core.Prepare(rate);
 		for (var t = 0; t < Instruments.Length; t++)
 			Core.Handle(new ChipEvent { Kind = ChipEventKind.AddInstrument, Instrument = t, Payload = Instruments[t] });
+		_corePrepared = true;
 	}
 }

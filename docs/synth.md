@@ -595,7 +595,10 @@ never starts halfway.
 
 ### The player
 
-`MusicPlayer` plays one song at a time on a bus, a new one crossfading over the last; `Update()` once a frame. `Position`
+`MusicPlayer` plays one song at a time on a bus, a new one crossfading over the last; `Update()` once a frame.
+**Starting a song without a stall:** `Prepare(song)` compiles it and makes its chip, needs no engine and may run on any
+thread; `Play(prepared)` then starts it on the engine's. A game builds and prepares a level's song on a task as the level
+loads, and plays it when it is ready. `Position`
 says the section, bar and beat; `Jump`, `LoopSection`, `Mute`, `Solo`, `SetTrackGain` and `Force` (a placement held on or
 off) steer it; `IsActive` and `TrackPeak` read it, for a workbench. **`Swap(song)`** takes the song rebuilt at the next
 bar line, in the scale playing, carrying on in the section of the same name at the same bar (or the first section if that

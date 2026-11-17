@@ -12,7 +12,10 @@ namespace Loom.Audio.Synth.Music;
 /// music.Update();                     // each frame
 /// </code>
 /// </summary>
-/// <remarks>Every call is for the thread that made the engine. The song is compiled on that thread; the audio thread only reads what it made.</remarks>
+/// <remarks>
+/// Every call is for the thread that made the engine but <see cref="Prepare"/>, which compiles a song and makes its chip on
+/// any thread, for a game that starts its songs without stalling a frame. The audio thread only reads what was made.
+/// </remarks>
 public sealed class MusicPlayer : IDisposable
 {
 	private readonly AudioEngine _audio;
@@ -120,13 +123,30 @@ public sealed class MusicPlayer : IDisposable
 	private SongState? Current => _swapping ?? _source?.State;
 
 	/// <summary>
-	/// Plays <paramref name="song"/>, in <paramref name="scale"/> or its own, from its first section. Anything playing fades
-	/// out over <paramref name="fadeSeconds"/> as it starts. Every cue the player has been told is in force from the first bar.
+	/// Makes <paramref name="song"/> ready to play, in <paramref name="scale"/> or its own: compiles it and makes its chip's
+	/// voices and effects, the costly part of starting a song. It touches nothing of the player's or the engine's, so it may
+	/// run on any thread, as a game does it while a level loads; hand the result to <see cref="Play(PreparedSong, float)"/>.
 	/// </summary>
-	public void Play(Song song, Scale? scale = null, float fadeSeconds = 1f)
+	public PreparedSong Prepare(Song song, Scale? scale = null)
 	{
 		ArgumentNullException.ThrowIfNull(song);
 		var state = new SongState(CompiledSong.Compile(song, scale ?? song.Scale));
+		state.PrepareCore(_audio.SampleRate);
+		return new PreparedSong(state);
+	}
+
+	/// <summary>
+	/// Plays a song made ready by <see cref="Prepare"/>, from its first section. Anything playing fades out over
+	/// <paramref name="fadeSeconds"/> as it starts. Every cue the player has been told is in force from the first bar.
+	/// </summary>
+	/// <exception cref="InvalidOperationException">It has been played already: prepare it again.</exception>
+	public void Play(PreparedSong prepared, float fadeSeconds = 1f)
+	{
+		ArgumentNullException.ThrowIfNull(prepared);
+		if (prepared.Played)
+			throw new InvalidOperationException($"Song '{prepared.Song.Name}' was prepared once and has been played: prepare it again to play it again.");
+		prepared.Played = true;
+		var state = prepared.State;
 		Tell(state);
 		Stop(fadeSeconds);
 		_muted.Clear();
@@ -139,6 +159,12 @@ public sealed class MusicPlayer : IDisposable
 		_askedEarly = _askedLate = -1;
 		_audio.Play(_played, _bus);
 	}
+
+	/// <summary>
+	/// Plays <paramref name="song"/>, in <paramref name="scale"/> or its own, from its first section. Anything playing fades
+	/// out over <paramref name="fadeSeconds"/> as it starts. Every cue the player has been told is in force from the first bar.
+	/// </summary>
+	public void Play(Song song, Scale? scale = null, float fadeSeconds = 1f) => Play(Prepare(song, scale), fadeSeconds);
 
 	/// <summary>
 	/// Swaps in <paramref name="song"/> (usually the same song rebuilt from changed code) at the next bar line, in the scale

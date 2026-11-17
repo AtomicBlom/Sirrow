@@ -241,6 +241,18 @@ public class MusicPlayerTests
 	}
 
 	[Test]
+	public async Task A_song_prepared_on_another_thread_plays_on_the_engines()
+	{
+		using var rig = new MusicRig(aheadSeconds: 0.1);
+		var prepared = await Task.Run(() => rig.Player.Prepare(Held("held", "5")));
+		rig.Player.Play(prepared);
+		rig.Step(MusicRig.Bar);
+
+		rig.Pitch(MusicRig.Bar / 4, MusicRig.Bar / 2).ShouldBe(392, 4);   // G4, the fifth of C major
+		Should.Throw<InvalidOperationException>(() => rig.Player.Play(prepared)).Message.ShouldContain("prepare it again");
+	}
+
+	[Test]
 	public void A_conductor_that_throws_is_thrown_from_update_and_the_section_loops()
 	{
 		var song = Held("faulty", "1");

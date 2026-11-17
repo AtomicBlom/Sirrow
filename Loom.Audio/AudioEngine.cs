@@ -810,6 +810,9 @@ public sealed class AudioEngine : IDisposable
 	// The thread doing the work off the audio thread, made the first time it is needed; none when Update does the work
 	private AudioWorker? Worker() => _workOnUpdate ? null : _worker ??= new AudioWorker();
 
+	// Whether the work off the audio thread is done in Update, on the thread calling it, rather than on a worker
+	internal bool WorksOnUpdate => _workOnUpdate;
+
 	private static void CheckStreamChannels(IStreamDecoder decoder)
 	{
 		if (decoder.Channels > 2)

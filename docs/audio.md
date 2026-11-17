@@ -448,7 +448,10 @@ Audio.Play(_music, musicBus);
 - **The lead is latency.** A change to the inner source's controls is heard up to the lead later. Music can take that
   (the music player's `aheadSeconds`, [synth.md](synth.md)); a sound effect, a sound that follows the player's hands or a click
   of the UI should play directly.
-- **A play renders the whole lead at once,** on the frame thread, so it sounds from its first block.
+- **A play doesn't stall the frame.** With a worker, the worker renders the first lead and the source is silent until
+  it is waiting (a few milliseconds), which isn't counted as an underrun; rendering it on the frame thread cost a song of
+  nine tracks 9 ms there. With `AudioWork.Update` (tests, offline renders) the play renders the lead at once, so it
+  sounds from its first block and a render is the same however it is run.
 - **If the work falls behind,** the block plays silence where nothing waits, counted in `Underruns`, and the source
   carries on from where it stopped, none of it lost. `FramesHeard` and `FramesRendered` say how far each side has got.
 - **The inner source must not play on its own** while wrapped (a play of it throws), and its controls keep one reader:

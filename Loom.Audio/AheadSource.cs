@@ -30,6 +30,7 @@ public sealed class AheadSource : AudioSource, IDisposable
 	private long _framesHeard;
 	private int _underruns;
 	private volatile bool _ended;   // the inner source has finished: what is in the ring is all there is
+	private volatile bool _starting; // the worker hasn't yet rendered the first lead: silence, not an underrun
 	private Exception? _fault;
 	private bool _disposed;
 
@@ -85,8 +86,12 @@ public sealed class AheadSource : AudioSource, IDisposable
 			_fault = null;
 			Inner.Start(sampleRate);
 		}
-		// The whole lead at once, so it sounds from its first block
-		Fill();
+		// Where the work is done in Update (tests, offline renders) the whole lead is rendered here, so it sounds from its
+		// first block and a render is the same however it is run. Where a worker does it, the worker renders the lead, and
+		// the source is silent until it has, rather than stalling the frame that started it
+		_starting = !_engine.WorksOnUpdate;
+		if (!_starting)
+			Fill();
 		_engine.AddAhead(this);
 	}
 
@@ -140,6 +145,14 @@ public sealed class AheadSource : AudioSource, IDisposable
 			return false;
 		// Ended is read before the ring, so an empty ring after it really is the end
 		var ended = _ended;
+		if (_starting)
+		{
+			// Silence until the worker has the whole lead waiting (or the inner source has ended), so it starts as it means
+			// to go on rather than stuttering through its first blocks
+			if (ring.Frames < _leadFrames && !ended)
+				return true;
+			_starting = false;
+		}
 		var frames = Math.Min(info.Frames, Block);
 		var taken = ring.Read(_taken.AsSpan(0, frames * 2));
 		for (var i = 0; i < taken; i++)
