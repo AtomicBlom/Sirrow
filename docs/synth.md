@@ -392,6 +392,17 @@ The tube is the touchiest. It must be blown at a sustain of 0.8 or more (a `Leve
 0.8) to speak below E4; it eases its own pressure below G#4 so low notes stay in their register, and it compensates
 its loop's filters' delay at each note, so it holds within 20 cents from G3 to C6.
 
+**A patch as data, and as code.** A built `Patch` is read-only data: its `Operators` (`OperatorSpec`, whose
+`Modulators` and `Drivers` name earlier operators by index), `Outputs`, `Filter`, the voice's settings and `Macros`.
+`PatchSpec.From(patch)` copies it into lists and settings a tool can change, and `spec.ToPatch()` builds it again
+through the builder, so every rule above is checked and a broken spec throws the same `PatchException`.
+`PatchCode.Write(patch)` writes the `Patch.Build` property that builds it, as a person would have written it: every
+operator up to the last that another reads gets a variable (so the builder makes them in the same order), defaults are
+left off, `Env.Decay` and `Env.Gate` are recognised, and a macro is named by the function given (`Macros.Bright`) or
+`new Macro(n)`. What it writes builds a patch equal to the one it was given. `SynthChip.Replace(instrument, patch)`
+swaps an instrument's patch while it plays: notes sounding finish on the old one, and its macros, gain and mute carry
+over. `AudioTap`, added to a bus with `AudioEngine.AddEffect`, keeps the latest frames through it for a tool to draw.
+
 ## 7. Samples and kits
 
 `SampleData` is a mono recording at its own rate (`SampleData.From(AudioDecoder.Decode(bytes))`). A `SampleZone` says
@@ -640,27 +651,171 @@ off the audio thread's deadline: the thread's load fell from 2.4% to 1.0% of it,
 
 ## 10. The workbench: `Loom.Audio.Workbench`
 
-A window for writing music in code, kept apart from `Loom.Audio.Synth` because it is UI (SUIsei) and the synth is not.
-A song stays C# in the game's own files. The workbench plays it, shows it, lets you steer it, and plays it again each time
-the file is saved under `dotnet watch`. [`samples/HelloSynth`](../samples/HelloSynth) is the sample: a demo song, four
-patches and a kit.
+A window for writing music, kept apart from `Loom.Audio.Synth` because it is UI (SUIsei) and the synth is not. A song
+stays in the game's own project, as files the workbench edits (section 11) and C# for what they can't say. The
+workbench plays it, shows it, lets you steer it, and plays it again each time a file is saved.
 
-What it shows:
-- **The transport.** The songs, play and stop, the position (section, bar, beat), the tempo and the scale.
-- **The sections**, one button each (a click jumps there at the next bar), and a loop on the section playing.
-- **The cues**, the catalog's whether the song uses them: a slider for a `Cue`, a button per value for a `Cue<T>`.
-- **The tracks.** Each with mute, solo, a gain and a level meter, and under it its placements: whether each is playing,
-  its condition, and auto, on and off to force it.
-- **The patch bench.** A patch or a kit, played from a two-octave keyboard, the computer's keys or the kit's pads, with
-  the patch's macros as sliders.
-- **The pattern** of the part selected, drawn as notes over the bar.
-- **A banner** with the error of a song that didn't build, while the last one plays on.
+Start it with `loom-workbench`, the app that opens a music project and compiles it again in-process with Roslyn on
+every save (below, "Opening a project"). From Loom's root:
 
-**The catalog.** A game hands the workbench a `WorkbenchCatalog`: its songs, patches and kits, each a name and a
-factory, and its cues. The factories matter. Hot reload changes what a factory returns, so the workbench calls it again
-after every edit rather than keeping what it made.
+```
+dotnet run --project Loom.Audio.Workbench.App -- samples/HelloSynth
+dotnet run --project Loom.Audio.Workbench.App -- new ../MyTunes        a project of your own, from HelloSynth, opened
+```
 
-**Hosting it.** HelloSynth's app, cut to what matters:
+[`samples/HelloSynth`](../samples/HelloSynth) is a music project to start from: a demo song, four patches, a kit, two
+cues and a macro. An app can also host the workbench itself over a catalog of its own ("Hosting the workbench in an
+app of your own", at the end of this section), though `loom-workbench` is the way a game's music is written.
+
+What it shows, one job at a time: a rail down the left gives the middle of the window to **Arrange**, **Patch**,
+**Kit** or **Files**, and the keyboard docked along the bottom plays what that mode has chosen.
+- **The transport.** The song chosen, play and stop, the position (section, bar, beat), the tempo and the scale, the
+  loop on the section playing, and the host's own controls. At its right, the last build's status as a pill: red when
+  the song didn't build, and a click opens its error over the view (the last song that built plays on).
+- **The library** (the rail's first button): the catalog's songs, patches and kits in one list, filtered by the words
+  typed. It opens over the view and folds away once something is chosen; **Pin** keeps it open as a column.
+- **Arrange.** The sections as a timeline, each as wide as its bars, lit while it plays with how far through it is; a
+  click jumps there at the next bar, marked until then; what plays next, and why (the conductor asked with the cues as
+  they are, `MusicPlayer.NextSection`). Under it the tracks as lanes, a column per section: each track's mute, solo, gain
+  and meter, and its parts as clips in the sections they play in, drawn small, whether each plays, its condition green
+  while it holds (`Condition.IsMet`), and auto, on and off to force it. The part chosen is drawn below, as notes over
+  the bar. Beside it **the cues**: a slider for a `Cue` with the levels parts wait on marked over it and what waits on
+  each, a button per value for a `Cue<T>`; one the song doesn't read is dimmed.
+- **The roll.** When the song has a file (section 11) and the part chosen is data there, it is edited below in place of
+  its drawing. A line on rows by degree: a click adds a note, a drag from a note's last step lengthens it, a drag
+  elsewhere (or off its row) moves it, a right-click or a second click deletes it. A beat's rows: a click cycles a step
+  through `x`, `X`, `o` and off. A strum: `D`, `U`, `d`, `u`, `x`, `_`. The roll's tools are glyphs over it, a hint under
+  them saying what a click and a drag do for the part: a line's flat, natural, sharp and slide, then accent and delete for
+  the note chosen, and a bar added or taken off the end, whole, so no edit can break a part's
+  notation (`NotationText` keeps the text's own spacing and changes a step's token; `RollEdits` are the edits). An edit
+  builds the song again from the file as edited (`SongFile.Load`, no compile) and is heard at the next bar; the file is
+  written 0.4 s after the edits pause (`SongEditor`), which the next compile takes up. Undo and Redo (Ctrl Z, Ctrl Y)
+  cover the session, a drag one edit; Revert puts the part back as the file had it when opened. A file changed
+  by something else is read again, and the undo history cleared. A part that is code, or a hook's, says so.
+  The patch designer writes its edits to the patch's `.patch.json` the same way, keeping the file's operator names.
+- **Patch**, the patch designer. The patch chosen as data (`PatchSpec`): its operators drawn as a graph in render order
+  (an operator a column right of the deepest it reads; modulation amber with its index, driving teal and dashed, the
+  heard to Out), the voice after them as a chain, and a scope and spectrum of what the bus plays (an `AudioTap` on it).
+  Beside it an inspector: the operator chosen (heard and at what level and pan, pitch, its kind's settings, level and
+  velocity, across the keyboard, modulated or driven only by an operator before it, the envelope; listen to it alone,
+  move it, delete it), the voice, the macros with their live values, and the C# that builds it (`PatchCode`), copied
+  through the host (`Workbench.CopyText`). Every edit builds the patch again as `Patch.Build` checks it and is heard
+  from the next note (`SynthChip.Replace`); what the builder refuses is shown while the last that built plays on. A
+  rebuild after a code change keeps the edits; Revert and "Hear its code" go back to the patch as its code has it. A
+  catalog names its macros for the code (`WorkbenchCatalog.MacroName`).
+- **Kit.** The kit chosen, a pad per piece; and the beat sketcher, a bar of sixteenths per piece (a click turns a step
+  to `x`, `X`, `o` or off), looped through the sequencer on a player of its own and copied as `Beat.Sixteenths(…)`.
+- **Eject and bring back.** In the roll, **Eject notation** makes the part's notation code (its condition and name stay
+  data) and **Eject placement** the whole placement: the C# that makes it (`PartCode`) is added to the song's own half of
+  its class and the file points at it (`"part": { "code": "Riff" }`, `"code": "Riff"`). In Patch, **Eject to code** does
+  the same for a patch (`PatchCode`, a `partial` property). A piece that is code says where it is; **Bring back as data**
+  writes what its code builds back to the file, if a file can say it, and takes its member out. The host does the C#
+  (`IMusicCode`; `Loom.Audio.Workbench.Projects`' `MusicCode`, with Roslyn), and what is ejected plays once the project
+  has compiled. A member renamed or taken out by hand fails the build at the generated call.
+- **Files** (the rail's last button): every song's and patch's file and the C# that is theirs; the one chosen shown as it
+  is, copied whole or a piece at a time: a C# file's class or any member (its indent taken off), a song's track, section
+  or part, a patch's operator, each written alone as its file writes it.
+- **The keyboard**, docked: two octaves, what it plays, how hard, its octave, the chip's load.
+- **The command palette** (Ctrl K): the catalog, the song's sections and the commands, found by every word typed.
+
+A host lays the window out at `WorkbenchView.FitScale(surface, displayScale)`: the display's scale, but never so large
+that the layout is smaller than the workbench needs, so a 1280 by 800 window on a 200% display is laid out at 1.
+
+**The catalog.** The workbench plays a `WorkbenchCatalog`: the songs, patches and kits, each a name and a factory, and
+the cues. The factories matter. A build changes what a factory returns, so the workbench calls it again after every
+build rather than keeping what it made. `loom-workbench` makes the catalog from the project's `[MusicCatalog]` class.
+
+What it was doing is kept and restored (`CaptureState`, `RestoreState`): the song, whether it played and in which
+section, the loop, a scale played in place of the song's, the cues, the mutes, solos, gains and forced placements, and
+the bench's patch, kit, octave and velocity, all by name, as JSON (`WorkbenchStateJson`).
+
+**Keys:** `A W S E D F T G Y H U J K` play an octave of notes on what the keyboard plays, C
+to C, as a piano's keys lie. `Z` and `X` move it down and up an octave. `Space` plays or stops, and `1` to `9` jump to a
+section. `Ctrl K` opens the command palette; `Escape` closes the palette, the library over the view, or a build's error.
+While a text field has the keys (the palette, the library's filter), the workbench leaves them alone.
+
+### Opening a project: `loom-workbench`
+
+`Loom.Audio.Workbench.App` builds `loom-workbench`, the workbench over any music project:
+
+```
+loom-workbench <project.csproj | its folder> [--extension <csproj>]
+                                                 the workbench over that project, with its extension
+loom-workbench new <folder>                      a project to start from (HelloSynth's, renamed), opened
+```
+
+Under `dotnet run` the arguments follow `--`, as above. A game can keep a one-line script beside its music that runs it
+(RubberTrack's `studio.ps1`). It isn't a `dotnet tool`: it is a Loom app, with native libraries (SDL 3) and compiled
+shaders beside it, built from the Loom it shares with the music it opens.
+
+A music project is an ordinary class library whose assembly names its catalog:
+`[assembly: MusicCatalog(typeof(Catalog))]` (`Loom.Audio.Synth.Music`). The workbench reads the class's public static
+`Songs`, `Patches` and `Kits` (lists of `(string Name, Func<T> Build)`), `Cues` (`IReadOnlyList<CueBase>`) and
+`string? MacroName(int id)`, whichever it has. The attribute is the synth's, not the workbench's, so a game's audio
+library carries it without referencing any UI.
+
+`Loom.Audio.Workbench.Projects` does the work, with no window, so tests and other hosts use it as the app does:
+- **`MusicProject.OpenAsync(csproj)`** asks a design-time build (`dotnet msbuild -t:PrepareResources;Compile` with
+  the compiler's execution skipped, out of process, restoring first if the project never was, in the host's
+  configuration when it says which) for the compiler's command line, and makes it a Roslyn project: sources,
+  references, embedded resources, analyzers and generators, editorconfigs and options. It asks again only when a
+  `.csproj`, `.props` or `.targets` changes or a file comes or goes.
+- **A save** (150 ms after the last write) updates that file in the compilation, compiles it whole, generators included,
+  emits it to memory with a portable PDB, and loads it into a new collectible `AssemblyLoadContext`. A whole compile has
+  no rude edits: a new type, a changed lambda's captures or a type's changed shape all reload. The newest build waits in
+  `TakeBuild()`; each frame, **`WorkbenchProject.Update()`** hands its catalog to the workbench
+  (`Workbench.UseCatalog`, which keeps the song, the selections and the cue values by name, swapping the song at the
+  next bar) or its errors to the build pill (`Workbench.ReportBuild`, "Songs/Tune.cs(12,5): error CS1002: ; expected"),
+  and releases the build before it, whose context unloads once nothing playing refers to it.
+- **Loom is shared, never loaded again.** A build's context resolves whatever the host can (Loom above all, whose types
+  the workbench and the music must share) from the host's own context, and the rest of the project's references from
+  their paths (a project reference from the assembly built beside its reference assembly). So every reference the host
+  has loaded must be the very build it runs: a project built against another Loom, or a reference rebuilt since the
+  workbench started, is refused with a message naming both files (`SharedReferences`, by module version id). A change
+  to the project's own references (another project of the game's) needs the workbench restarted.
+- **`ProjectTemplate.Create(folder)`** is what `new` writes: HelloSynth's C# and music files, its namespace renamed for
+  the folder. Its `.csproj` references `Loom.Audio.dll` and `Loom.Audio.Synth.dll` from the workbench's own folder, and
+  the music generator beside them as its analyzer, so they always match.
+- **What it was doing** is kept beside the project, in `.loom/workbench.json` (`WorkbenchStateFile.Beside`), restored
+  once the first build has played.
+
+**Extensions: a game's own tools.** A game that has more to offer than the music (its mix to play into, so a song
+sounds as it will in the game; its own controls; a recorded car under the music) writes an extension, in an assembly
+of its own: `[assembly: WorkbenchExtension(typeof(StudioExtras))]` on a public class implementing `IWorkbenchExtension`
+(in `Loom.Audio.Workbench`, so it needs no Roslyn or MSBuild):
+
+- `Output(AudioEngine)`: the bus the music plays into, or null for the workbench's own.
+- `Catalog`: its own build of the music, to play at once while the project's first compile runs, or null to wait.
+- `Attach(WorkbenchExtensionContext)`: its controls added to the transport's end, the command line the workbench didn't
+  take (`--recording race.zip`, read with `Option`).
+- `Update(seconds)` each frame; `MusicBuilt(Assembly)` with each new build of the music, for an extension that takes
+  something of the music's own from the build (RubberTrack's engine bench takes its engine's numbers from it, so a
+  change to them is heard as it is saved); `Dispose`.
+
+The music project names its extension's project with an MSBuild property,
+`<LoomWorkbenchExtension>../Game.Studio/Game.Studio.csproj</LoomWorkbenchExtension>`, or `--extension <csproj>` gives
+one (`--extension none` for none). `loom-workbench` builds it in its own configuration and loads it once into the
+default context before the window opens, where the music's builds share what it references, as they share Loom; its
+own references load from beside it. It is built without building its references again (`BuildProjectReferences`
+false), taking them as they were last built, so it shares the very Loom the workbench's own build made: a shared
+project built again is another build, even from the same sources, since its sources' paths are in it (a build started
+from `c:\` rather than `C:\` compiles it again). Only an extension whose references were never built is built with
+them. A game's script that starts the workbench builds the extension first, from the same path (RubberTrack's
+`studio.ps1`), so its own references are up to date. It isn't reloaded: a change to its project's sources is said beside the build pill
+("Game.Studio changed: restart to take it up"), and needs the workbench restarted. One built against
+another build of what the workbench runs is refused, as a project is (`SharedReferences`; a library built for several
+frameworks, SUIsei, is compared only between builds for the same framework). `loom-workbench` runs on the newest .NET
+installed (`RollForward` `LatestMajor`), so it opens a project, and loads an extension, that targets a newer .NET than
+Loom does.
+
+RubberTrack's audio library (its songs, patches, kits and their samples) opens and compiles in about 1.7 s, and compiles
+again after a save in 0.35 to 0.45 s on a Snapdragon X: well under a bar (2.2 s at 108 bpm).
+
+### Hosting the workbench in an app of your own
+
+An app can put the workbench in a window of its own over a catalog it makes itself, and run under `dotnet watch` for
+hot reload in place of `loom-workbench`'s compiles. It is the way to take the workbench somewhere `loom-workbench`
+can't go; for a game's own mix and controls beside the music, an extension (above) is simpler. Cut to what matters:
 
 ```csharp
 protected override void Configure(AppOptions options) => options.Audio = new AudioOptions();
@@ -670,8 +825,8 @@ protected override void LoadContent()
 	_ui = new UIHost();
 	_painter = UIPainter.Create(Engine, _ui);
 	_view = _ui.CreateRoot(UILayer.Default);
-	_workbench = new Workbench(Audio, Audio.CreateBus("music"), DemoCatalog.Make());
-	if (Load() is { } state)
+	_workbench = new Workbench(Audio, Audio.CreateBus("music"), MyCatalog.Make());
+	if (_state.Load() is { } state)                  // a WorkbenchStateFile
 		_workbench.RestoreState(state);              // where it was before a restart
 	_view.Root.Content = new WorkbenchView(_workbench.ViewModel);
 	PushInputLayer(new SUIseiInputLayer(_ui));
@@ -682,25 +837,22 @@ protected override void Update(FrameTime time)
 {
 	_workbench.HandleInput(Input);                   // the computer's keys
 	_workbench.Update(time.DeltaSeconds);            // the player, the meters, and a rebuild after an edit
-	// ... CaptureState() saved to a file when it changes
+	// ... _state.Save(_workbench.CaptureState()) once a second: written only when it changed
 }
 ```
 
-The workbench uses only `Loom.Audio.Synth`'s public API, so a game can build a tool of its own the same way: a
-placement's `Section`, `Track`, `Condition` (whose `ToString` says it in words), `LevelCue` and `IsOnPhrase`; a cue's
-`OptionNames` and `OptionValue`; the player's `Get` and `Set` for any cue, `SectionTick` for a playhead, and
-`Pattern(placement)`, one pass of a part's notes as the sequencer plays them.
-
-`WorkbenchView.TransportExtras` is a panel at the end of the transport bar for the host's own controls (a toggle for a
-sound of the game's own to hear under the music, say). `CaptureState` and `RestoreState` keep the song, whether it
-played and in which section, the loop, a scale played in place of the song's, the cues, the mutes, solos, gains and
-forced placements, and the bench's patch, kit, octave and velocity, all by name, as JSON (`WorkbenchStateJson`).
-
-**Keys:** `A W S E D F T G Y H U J K` play an octave of notes on the patch bench, C to
-C, as a piano's keys lie. `Z` and `X` move it down and up an octave. `Space` plays or stops, and `1` to `9` jump to a
-section.
+`loom-workbench`'s own app (`Loom.Audio.Workbench.App/WorkbenchApp.cs`) is this, with a `MusicProject` handing it
+each build (`WorkbenchProject`). `WorkbenchView.TransportExtras` is a panel for the host's own controls, on a row of
+its own across the transport bar once asked for, scrolling sideways if even that is too narrow. The workbench uses
+only `Loom.Audio.Synth`'s public API, so a game can build a tool of its own the
+same way: a placement's `Section`, `Track`, `Condition` (whose `ToString` says it in words), `LevelCue` and
+`IsOnPhrase`; a cue's `OptionNames` and `OptionValue`; the player's `Get` and `Set` for any cue, `SectionTick` for a
+playhead, and `Pattern(placement)`, one pass of a part's notes as the sequencer plays them.
 
 ### What hot reload can and can't do
+
+Under `dotnet watch`, in an app hosting the workbench itself. `loom-workbench` has none of these limits: it compiles the
+project whole and loads each build into a context of its own, whose static fields start afresh.
 
 - **A song, a patch and a kit are built by a method or a property, every time.** A `static readonly` field is
   initialised once and hot reload never runs its initialiser again.
@@ -718,14 +870,91 @@ The mutes, solos, gains and forced placements carry over by name.
 
 ---
 
-## 11. Not built yet
+## 11. Music as data
+
+A patch or a song can be a file rather than code: JSON a tool writes and reads back exactly, which Loom's music
+generator turns into the C# a person would have written as the project builds. The game builds and runs the C#, so
+NativeAOT and the browser are as they were; the workbench edits the files.
+
+**`loom-patch/1`** (`PatchFile`): a `PatchSpec` as JSON. Each operator is named and routed by name, and only what differs
+from a new spec's defaults is written, so `Write` then `Read` gives back the same spec, float for float.
+
+```json
+{
+  "format": "loom-patch/1",
+  "name": "electric-piano",
+  "about": "An electric piano: a tine's bell over a tone bar that barks when struck hard",
+  "operators": [
+    { "name": "strike", "kind": "sine", "ratio": 14, "envelope": "decay 0.06", "velocity": 0.8, "keyLevel": -4 },
+    { "name": "tine", "kind": "sine", "envelope": "adsr 0.002 2.2 0 0.2", "level": 0.35, "modulatedBy": [{ "op": "strike", "index": 0.7 }] }
+  ],
+  "out": [{ "op": "tine" }],
+  "sends": { "space": 0.2 },
+  "tremolo": { "rate": 4.5, "depth": 0.15 }
+}
+```
+
+A kind is `sine`, `saw`, `pulse`, `noise`, `level`, `string`, `tube` or `modes`; a sampled operator can't be data. An
+envelope is `"gate"`, `"decay s"` or `"adsr a d s r"`; a mode `"at ratio seconds [level]"` or `"fixed hz seconds
+[level]"`; a macro its number. `PatchSpec.About` carries `"about"`.
+
+**`loom-song/1`** (`SongFile`): a song, its patches, kits, cues and macros named, written a part to a line:
+`SongFile.Write(song, names)` from a built song (`SongNames` says what the catalog calls each patch, kit and macro, and
+gives a group's effects, which a built song can't), `ToJson` to add what a built song can't say before writing (its
+conductor, its hooks), and `Load(json, bindings)` to build one at run time (`SongBindings` binds the names). Its pieces:
+
+| Key | What it says |
+|---|---|
+| `tempo`, `meter`, `scale`, `voices` | The song's settings, defaults left out: `"scale": "F# minor"` |
+| `effects` | The space, echo and master sends' effects, if not the defaults |
+| `groups` | `{ "name", "effects": [{ "fx": "compressor", "thresholdDb": -18, "ratio": 3 }] }`: an effect is one of `Fx`'s factories, its arguments by their parameter names |
+| `tracks` | `{ "name", "patch" or "kit", "group", "octave", "level", "pan", "humanise": { "ms", "velocity" }, "swing": { "ratio", "step" }, "macros": [{ "macro", "follow", "from", "to" } or { "macro", "set" }] }` |
+| `sections` | `{ "name", "about", "bars", "chords", "parts": [...], "sweeps": [{ "track", "macro", "from", "to" }] }` |
+| a part | `{ "track", "name", ` a line `"line": "eighths", "notes", "overChords", "octave"`, a beat `"beat", "rows": { "kick": "x..." }`, a strum `"strum", "notes", "voicing", "spread"`, or code `"part": { "code": "Name" }`; then `"when"`, `"level"` (a cue), `"onPhrase"`, `"endWith"` (a part) `}`, or a whole placement as code `{ "track", "code": "Name" }` |
+| `order` or `conduct` | The sections in turn, or rules asked near each section's end: `[{ "when": "intensity > 0.7", "then": "open" }, { "then": "cruise" }]` |
+| `hooks` | `["OnBuilt"]`: code of the game's own, run with the song and every section once the rest is built |
+
+A condition (`ConditionText`) is `"intensity > 0.6"`, `"intensity < 0.2"` or `"biome is Forest"`, joined by `and`, `or`,
+`not` and brackets.
+
+**The generator** (`Loom.Audio.Music.Generator`) reads a project's `AdditionalFiles` ending `.patch.json` and
+`.song.json`. Every patch file becomes a property of one `static partial class Patches` in the project's root namespace,
+named for its file (`electric-piano.patch.json` is `Patches.ElectricPiano`), written as `PatchCode` writes it. Every song
+file becomes `static partial class OpenRoad` (from `open-road.song.json`) with `public static Song Build()`, in the
+namespace of its folder. A name in a song is a member of the project's classes: `Patches.UprightBass`, `Kits.General`,
+`Cues.Intensity`, `Macros.Bright`; a choice cue's enum and an effect's argument types come from the compilation. What a
+file says that can't be code is an error, `LOOMMUSIC001`, at its line in the file.
+
+What a file can't say is code, declared by the generated class and written in the game's own half of it, so a missing or
+renamed member fails the build: a part (`private static partial Part Name();`), a placement (`private static partial
+Placement Name(Section section, SongTrack track);`), a patch (`public static partial Patch Name { get; }`), a hook
+(`static partial void OnBuilt(Song song, Section verse, Section chorus);`).
+
+```xml
+<ItemGroup>
+  <AdditionalFiles Include="Patches\*.patch.json;Songs\*.song.json" />
+  <CompilerVisibleProperty Include="RootNamespace" />
+  <CompilerVisibleProperty Include="ProjectDir" />
+  <ProjectReference Include="..\Loom\Loom.Audio.Music.Generator\Loom.Audio.Music.Generator.csproj"
+                    OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+</ItemGroup>
+```
+
+The classes the names are found in can be others (`LoomMusicPatches`, `LoomMusicKits`, `LoomMusicCues`,
+`LoomMusicMacros`, each made visible the same way). `MusicGeneratorTests` checks that the generated patch and song build
+what `PatchFile.Load` and `SongFile.Load` build from the same files; RubberTrack moved its 48 patches and ten songs onto
+the files and every render stayed bit-identical.
+
+---
+
+## 12. Not built yet
 
 - **Music in the browser costs too much to play.** There the mix runs on the frame thread, and a song of eight tracks
   costs several milliseconds of each frame; rendering it ahead on a worker (`AudioOptions.BrowserThread`) has hung the
   page. The chip, effects and offline rendering work there; a browser game should budget for music or leave it out.
 - **No tempo change within a song,** and no meter change: a song has one of each. A swap may bring another.
-- **The workbench is not a package.** An app references its project, and its pattern view shows a part's notes but
-  doesn't edit them: the song is edited in code.
+- **The workbench is not a package.** An app references its project. The roll edits a part only where its song has a
+  file; a song that is code alone is edited in code.
 - **No vectorised inner loops.** The oversampler's half-band filter and the voices' operators are scalar; making them
   wide changes the order of their sums, and so the bits a render gives.
 - **Measured on one machine.** The costs quoted here are a Snapdragon X laptop's. A denormal costs little on ARM and a

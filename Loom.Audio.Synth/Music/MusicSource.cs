@@ -85,6 +85,8 @@ internal sealed class MusicSource : AudioSource
 	public long AbsoluteBar => Volatile.Read(ref _publishedAbsoluteBar);
 	public int TicksLeft => _publishedTicksLeft;
 	public int Pass => _publishedPass;
+	// Where in the song's order the section playing is; read on the game thread only to show what comes next
+	internal int OrderPosition => _orderPosition;
 	public int SectionStarts => _sectionStarts;
 
 	// Game thread: a command for the next block

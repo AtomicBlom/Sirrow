@@ -32,6 +32,22 @@ public class AudioAnalysisTests
 	}
 
 	[Test]
+	public void A_spectrum_into_kept_buffers_is_the_same_spectrum_and_refuses_buffers_that_do_not_fit()
+	{
+		var sine = Sine(0.5f, 1000, 4096);
+		var made = AudioAnalysis.Spectrum(sine);
+		var (real, imaginary, bins) = (new double[4096], new double[4096], new float[2049]);
+
+		AudioAnalysis.Spectrum(sine, real, imaginary, bins);
+		AudioAnalysis.Spectrum(sine, real, imaginary, bins); // again, over what the first left in them
+		bins.ShouldBe(made);
+
+		Should.Throw<ArgumentException>(() => AudioAnalysis.Spectrum(sine, new double[3000], new double[3000], new float[1501]));
+		Should.Throw<ArgumentException>(() => AudioAnalysis.Spectrum(sine, real, imaginary, new float[2048]));
+		Should.Throw<ArgumentException>(() => AudioAnalysis.Spectrum(sine.AsSpan(0, 1000), real, imaginary, bins));
+	}
+
+	[Test]
 	public void The_peak_frequency_finds_a_sine_between_bins()
 	{
 		var sine = Sine(0.5f, 440, 32_768);

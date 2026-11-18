@@ -22,8 +22,10 @@ public sealed class SongTrack
 
 	internal Song Song { get; }
 	internal int Index { get; }
-	internal Patch? Patch { get; }
-	internal DrumKit? Kit { get; }
+	/// <summary>The patch its notes play on, or null for a kit's track.</summary>
+	public Patch? Patch { get; }
+	/// <summary>The kit its hits play on, or null for a patch's track.</summary>
+	public DrumKit? Kit { get; }
 	internal SongGroup? Group { get; }
 	internal int OctaveValue { get; private set; } = 4;
 	internal float GainDb { get; private set; }

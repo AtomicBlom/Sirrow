@@ -10,6 +10,8 @@ internal sealed class SectionChords
 
 	public SectionChords(string text)
 	{
+		Text = text ?? throw new ArgumentNullException(nameof(text));
+
 		ArgumentNullException.ThrowIfNull(text);
 		var bars = new List<Chord[]>();
 		var column = 1;
@@ -37,6 +39,9 @@ internal sealed class SectionChords
 		}
 		_bars = [.. bars];
 	}
+
+	/// <summary>The chords as written: "I | IV | V vi | I".</summary>
+	public string Text { get; }
 
 	public int Bars => _bars.Length;
 

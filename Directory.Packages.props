@@ -35,6 +35,7 @@
     <PackageVersion Include="ImGui.NET" Version="1.91.6.1" />
     <!-- Roslyn for the SUIsei.SourceGen XAML incremental generator (build-time analyzer, PrivateAssets=all). -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.14.0" />
     <!-- Source-generator-based MVVM ([ObservableProperty]/[RelayCommand]) — no reflection, so it stays AOT/trim-safe
          under the WASM publish. Backs the demo shell's per-demo debug panels. -->
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />

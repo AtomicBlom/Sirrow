@@ -1,11 +1,12 @@
 using Loom.Audio.Synth.Chip;
 
-namespace HelloSynth.Demo;
+namespace HelloSynth;
 
-/// <summary>A drum kit made of patches, so the demo needs no samples: kick, snare, and closed and open hats that choke each other.</summary>
-internal static class DemoKit
+/// <summary>The drum kits, which are code: a kit made of patches, so the demo needs no samples.</summary>
+public static class Kits
 {
-	public static DrumKit Make() => DrumKit.FromPatches("demo kit",
+	/// <summary>Kick, snare, and closed and open hats that choke each other.</summary>
+	public static DrumKit DemoKit => DrumKit.FromPatches("demo kit",
 		(Kit.Kick, Patch.Build("kick", p =>
 		{
 			p.Out(p.Sine(1f, Env.Decay(0.3f)).Fixed(52f));

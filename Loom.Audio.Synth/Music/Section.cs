@@ -29,6 +29,9 @@ public sealed class Section
 	public int Index { get; }
 	internal SectionChords Chords { get; }
 
+	/// <summary>Its chords as written, a bar to each <c>|</c>: "I | IV | V vi | I".</summary>
+	public string ChordText => Chords.Text;
+
 	/// <summary>
 	/// <paramref name="track"/> plays <paramref name="part"/> through the section: repeated if shorter, cut at the end if
 	/// longer. The part is read here, against the song's meter.

@@ -114,6 +114,17 @@ internal sealed class ChipCore
 			case ChipEventKind.AddInstrument:
 				_instruments[e.Instrument] = (ChipInstrumentState)e.Payload!;
 				break;
+			case ChipEventKind.ReplaceInstrument:
+				var replacing = (ChipInstrumentState)e.Payload!;
+				if (_instruments[e.Instrument] is { } was)
+				{
+					was.Macros.CopyTo(replacing.Macros, 0);
+					replacing.Gain = was.Gain;
+					replacing.Muted = was.Muted;
+					replacing.NoteTurn = was.NoteTurn;
+				}
+				_instruments[e.Instrument] = replacing;
+				break;
 			case ChipEventKind.NoteOn:
 				NoteOn(in e);
 				break;

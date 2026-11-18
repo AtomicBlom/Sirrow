@@ -97,6 +97,35 @@ public sealed class MusicPlayer : IDisposable
 		: -1;
 
 	/// <summary>
+	/// The section the song would play after the one playing, with the cues as they are now: a conducted song's conduct
+	/// function asked without moving the song, else the next in its order. Null when nothing plays, or the conduct function
+	/// throws. For a tool to show; it allocates.
+	/// </summary>
+	public Section? NextSection
+	{
+		get
+		{
+			if (_source is not { } source || Current is not { } state)
+				return null;
+			var song = state.Song;
+			var current = song.Sections[Math.Min(source.SectionIndex, song.Sections.Length - 1)];
+			if (song.Conducted)
+			{
+				var conductor = new Conductor(CueValue) { Current = current.Source, Repeats = source.Pass };
+				try
+				{
+					return song.Song.Conductor!(conductor);
+				}
+				catch (Exception)
+				{
+					return null;
+				}
+			}
+			return song.Order.Length == 0 ? current.Source : song.Song.Sections[song.Order[(source.OrderPosition + 1) % song.Order.Length]];
+		}
+	}
+
+	/// <summary>
 	/// What <paramref name="placement"/> plays over one pass of its part, as the sequencer has it: its notes or hits with
 	/// their ticks, lengths and velocities, in the scale playing (or <paramref name="scale"/>, or its song's, when its song
 	/// isn't the one playing). For a tool drawing the part; it allocates, so not for every frame.
