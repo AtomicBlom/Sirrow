@@ -683,13 +683,14 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
   each, a button per value for a `Cue<T>`; one the song doesn't read is dimmed.
 - **The roll.** When the song has a file (section 11) and the part chosen is data there, it is edited below in place of
   its drawing. A line on rows by degree: a click adds a note, a drag from a note's last step lengthens it, a drag
-  elsewhere (or off its row) moves it, a right-click or a second click deletes it; Flat, Natural, Sharp, Accent and Slide
-  change the note chosen, Delete takes it out. A beat's rows: a click cycles a step through `x`, `X`, `o` and off. A
-  strum: `D`, `U`, `d`, `u`, `x`, `_`. **+ bar** and **− bar** add and take off a whole bar, so no edit can break a part's
+  elsewhere (or off its row) moves it, a right-click or a second click deletes it. A beat's rows: a click cycles a step
+  through `x`, `X`, `o` and off. A strum: `D`, `U`, `d`, `u`, `x`, `_`. The roll's tools are glyphs over it, a hint under
+  them saying what a click and a drag do for the part: a line's flat, natural, sharp and slide, then accent and delete for
+  the note chosen, and a bar added or taken off the end, whole, so no edit can break a part's
   notation (`NotationText` keeps the text's own spacing and changes a step's token; `RollEdits` are the edits). An edit
   builds the song again from the file as edited (`SongFile.Load`, no compile) and is heard at the next bar; the file is
   written 0.4 s after the edits pause (`SongEditor`), which the next compile takes up. Undo and Redo (Ctrl Z, Ctrl Y)
-  cover the session, a drag one edit; **Revert part** puts the part back as the file had it when opened. A file changed
+  cover the session, a drag one edit; Revert puts the part back as the file had it when opened. A file changed
   by something else is read again, and the undo history cleared. A part that is code, or a hook's, says so.
   The patch designer writes its edits to the patch's `.patch.json` the same way, keeping the file's operator names.
 - **Patch**, the patch designer. The patch chosen as data (`PatchSpec`): its operators drawn as a graph in render order
@@ -841,8 +842,9 @@ protected override void Update(FrameTime time)
 ```
 
 `loom-workbench`'s own app (`Loom.Audio.Workbench.App/WorkbenchApp.cs`) is this, with a `MusicProject` handing it
-each build (`WorkbenchProject`). `WorkbenchView.TransportExtras` is a panel at the end of the transport bar for the
-host's own controls. The workbench uses only `Loom.Audio.Synth`'s public API, so a game can build a tool of its own the
+each build (`WorkbenchProject`). `WorkbenchView.TransportExtras` is a panel for the host's own controls, on a row of
+its own across the transport bar once asked for, scrolling sideways if even that is too narrow. The workbench uses
+only `Loom.Audio.Synth`'s public API, so a game can build a tool of its own the
 same way: a placement's `Section`, `Track`, `Condition` (whose `ToString` says it in words), `LevelCue` and
 `IsOnPhrase`; a cue's `OptionNames` and `OptionValue`; the player's `Get` and `Set` for any cue, `SectionTick` for a
 playhead, and `Pattern(placement)`, one pass of a part's notes as the sequencer plays them.
