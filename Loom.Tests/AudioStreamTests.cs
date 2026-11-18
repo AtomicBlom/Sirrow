@@ -268,12 +268,11 @@ public class AudioStreamTests
 		for (var i = 0; i < 200; i++)
 			Frame(); // through a loop's end and back to its start: every path taken
 
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		for (var i = 0; i < 400; i++)
-			Frame();
-		var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-		allocated.ShouldBe(0);
+		Allocations.ShouldAllocateNothing(() =>
+		{
+			for (var i = 0; i < 400; i++)
+				Frame();
+		});
 	}
 
 	private sealed class ForwardOnlyStream(byte[] bytes) : Stream

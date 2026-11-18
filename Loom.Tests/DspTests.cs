@@ -388,11 +388,7 @@ public class DspTests
 		}
 
 		Run(1000);
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		Run(100_000);
-		var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-		allocated.ShouldBe(0);
+		Allocations.ShouldAllocateNothing(() => Run(100_000));
 		float.IsFinite(sum).ShouldBeTrue();
 	}
 

@@ -140,13 +140,14 @@ public class AheadSourceTests
 			engine.Update();
 		}
 
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		for (var i = 0; i < 512; i++)
+		Allocations.ShouldAllocateNothing(() =>
 		{
-			device.Render(block);
-			engine.Update();
-		}
-		(GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+			for (var i = 0; i < 512; i++)
+			{
+				device.Render(block);
+				engine.Update();
+			}
+		});
 		block.Max().ShouldBeGreaterThan(0f);   // and frames came through: not silence allocating nothing
 	}
 

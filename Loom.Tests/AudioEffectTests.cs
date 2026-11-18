@@ -239,12 +239,11 @@ public class AudioEffectTests
 		for (var i = 0; i < 64; i++)
 			Frame(i);
 
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		for (var i = 0; i < 512; i++)
-			Frame(i);
-		var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-		allocated.ShouldBe(0, "Mixing through effects and sends allocated managed memory once running.");
+		Allocations.ShouldAllocateNothing(() =>
+		{
+			for (var i = 0; i < 512; i++)
+				Frame(i);
+		}, "Mixing through effects and sends allocated managed memory once running.");
 	}
 
 	private sealed class Halve : AudioEffect

@@ -176,16 +176,13 @@ public class FlacDecoderTests
 		var decoder = Open("flac-24bit-lpc32");
 		var chunk = new float[512 * 2];
 
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		while (decoder.Read(chunk) > 0)
+		// To the end and back: the whole file each window, from its first frame
+		Allocations.ShouldAllocateNothing(() =>
 		{
-		}
-		decoder.Rewind();
-		while (decoder.Read(chunk) > 0)
-		{
-		}
-		var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-		allocated.ShouldBe(0);
+			while (decoder.Read(chunk) > 0)
+			{
+			}
+			decoder.Rewind();
+		});
 	}
 }
