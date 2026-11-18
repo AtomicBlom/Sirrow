@@ -178,4 +178,62 @@ public class AudioDuckTests
 		back.ShouldBe(Music, 1e-5f);
 		engine.GetBusVolume(engine.Master).ShouldBe(1f); // the game's own volume is left alone
 	}
+
+	[Test]
+	public void The_unfocused_volume_set_while_running_is_what_focus_fades_to()
+	{
+		var (engine, device, _, _) = Make();
+
+		engine.SetUnfocusedVolume(0.25f);
+		engine.SetFocused(false);
+
+		MusicAfter(device, blocks: 60).ShouldBe(Music * 0.25f, 1e-5f);
+		engine.UnfocusedVolume.ShouldBe(0.25f);
+	}
+
+	[Test]
+	public void Changing_the_unfocused_volume_in_focus_changes_nothing_heard()
+	{
+		var (engine, device, _, _) = Make();
+
+		engine.SetUnfocusedVolume(0f);
+
+		MusicAfter(device, blocks: 60).ShouldBe(Music, 1e-5f);
+	}
+
+	[Test]
+	public void Changing_the_unfocused_volume_out_of_focus_fades_the_output_to_it()
+	{
+		var (engine, device, _, _) = Make(new AudioOptions { UnfocusedVolume = 0.25f });
+		engine.SetFocused(false);
+		MusicAfter(device, blocks: 60);
+
+		engine.SetUnfocusedVolume(0.5f);
+		MusicAfter(device, blocks: 60).ShouldBe(Music * 0.5f, 1e-5f);
+
+		engine.SetFocused(true);
+		MusicAfter(device, blocks: 60).ShouldBe(Music, 1e-5f);
+	}
+
+	[Test]
+	public void The_unfocused_volume_multiplies_with_the_master_volume()
+	{
+		var (engine, device, _, _) = Make();
+		engine.SetBusVolume(engine.Master, 0.2f);
+
+		engine.SetUnfocusedVolume(0.2f);
+		engine.SetFocused(false);
+
+		MusicAfter(device, blocks: 60).ShouldBe(Music * 0.04f, 1e-5f);
+		engine.GetBusVolume(engine.Master).ShouldBe(0.2f);
+	}
+
+	[Test]
+	public void An_unfocused_volume_below_zero_or_not_a_number_throws()
+	{
+		var (engine, _, _, _) = Make();
+
+		Should.Throw<ArgumentOutOfRangeException>(() => engine.SetUnfocusedVolume(-0.1f));
+		Should.Throw<ArgumentOutOfRangeException>(() => engine.SetUnfocusedVolume(float.NaN));
+	}
 }

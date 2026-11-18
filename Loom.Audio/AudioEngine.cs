@@ -52,12 +52,23 @@ public sealed class AudioEngine : IDisposable
 	private readonly int[] _busParents;
 	private readonly bool[] _duckEnabled;
 	private int _duckCount;
-	private readonly float _unfocusedVolume;
-	// Open streams, replaced whole as they open and close, and what keeps their rings topped up: a thread of their own, or
-	// in the browser (where the mix itself runs on the frame thread) Update
+	// Effects per bus, and each send's level as last set
+	private readonly int[] _busEffects;
+	private readonly int _maxEffectsPerBus;
+	private readonly float[] _sendLevels;
+	// Each send's buses, from which and to which: what the mix order is derived from, with the buses' parents
+	private readonly int[] _sendFrom;
+	private readonly int[] _sendTo;
+	private int _sendCount;
+	private float _unfocusedVolume;
+	private bool _focused = true;
+	// Open streams and ahead sources, each replaced whole as they come and go, and what does their work: a thread of the
+	// engine's, or Update (AudioWork.Update, and in the browser, where the mix itself runs on the frame thread, unless
+	// AudioOptions.BrowserThread)
 	private AudioStream[] _streams = [];
-	private AudioStreamer? _streamer;
-	private readonly bool _pumpStreams = OperatingSystem.IsBrowser();
+	private AheadSource[] _ahead = [];
+	private AudioWorker? _worker;
+	private readonly bool _workOnUpdate;
 	// Which voices were played in 3D, by slot, and the listener as last sent (so an unmoved listener sends nothing)
 	private readonly bool[] _spatial;
 	private (Vector3? Position, Vector3? Forward, Vector3? Up, Vector3? Velocity) _listenerSent;
@@ -72,6 +83,8 @@ public sealed class AudioEngine : IDisposable
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxBuses, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.CommandCapacity, nameof(options));
 		ArgumentOutOfRangeException.ThrowIfNegative(options.MaxDucks, nameof(options));
+		ArgumentOutOfRangeException.ThrowIfNegative(options.MaxEffectsPerBus, nameof(options));
+		ArgumentOutOfRangeException.ThrowIfNegative(options.MaxSends, nameof(options));
 		if (!float.IsFinite(options.SpeedOfSound) || options.SpeedOfSound <= 0f)
 			throw new ArgumentOutOfRangeException(nameof(options), options.SpeedOfSound, "AudioOptions.SpeedOfSound is more than zero, in the game's units a second.");
 		if (!float.IsFinite(options.UnfocusedVolume) || options.UnfocusedVolume < 0f)
@@ -82,6 +95,9 @@ public sealed class AudioEngine : IDisposable
 		Device = device;
 		SampleRate = device.SampleRate;
 		_ownerThread = Environment.CurrentManagedThreadId;
+		_workOnUpdate = options.Work == AudioWork.Update || (OperatingSystem.IsBrowser() && !options.BrowserThread);
+		if (!_workOnUpdate && options.StartWorker)
+			_worker = new AudioWorker();
 
 		_commands = new AudioEventQueue<AudioCommand>(options.CommandCapacity);
 		_ended = new AudioEventQueue<int>(options.MaxVoices);
@@ -102,8 +118,15 @@ public sealed class AudioEngine : IDisposable
 		_duckEnabled = new bool[options.MaxDucks];
 		_unfocusedVolume = options.UnfocusedVolume;
 
+		_busEffects = new int[options.MaxBuses];
+		_maxEffectsPerBus = options.MaxEffectsPerBus;
+		_sendLevels = new float[options.MaxSends];
+		_sendFrom = new int[options.MaxSends];
+		_sendTo = new int[options.MaxSends];
+
 		_spatial = new bool[options.MaxVoices];
-		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, options.MaxDucks, options.SpeedOfSound, _commands, _ended);
+		_mixer = new AudioMixer(SampleRate, options.MaxVoices, options.MaxBuses, options.MaxDucks, options.MaxEffectsPerBus, options.MaxSends,
+			options.SpeedOfSound, _commands, _ended);
 		device.Start(_mixer);
 	}
 
@@ -125,7 +148,14 @@ public sealed class AudioEngine : IDisposable
 		_droppedVoices,
 		_mixer.Peak,
 		_mixer.RenderLoad,
-		_mixer.MaxRenderLoad);
+		_mixer.MaxRenderLoad,
+		Device.Underruns);
+
+	/// <summary>
+	/// Starts <see cref="AudioStats.MaxRenderLoad"/> over from 0, so it says the highest load since now: a debug display
+	/// that shows the peak of each second calls this as each second ends.
+	/// </summary>
+	public void ResetMaxRenderLoad() => _mixer.ResetMaxRenderLoad();
 
 	/// <summary>
 	/// A new bus named <paramref name="name"/>, mixed into <paramref name="parent"/> (the master bus by default). Make the
@@ -144,6 +174,7 @@ public sealed class AudioEngine : IDisposable
 		_busNames[index] = name;
 		_busParents[index] = parent.Index;
 		_busVolumes[index] = 1f;
+		SendMixOrder(MixOrder());
 		return new AudioBus(index);
 	}
 
@@ -247,14 +278,119 @@ public sealed class AudioEngine : IDisposable
 	}
 
 	/// <summary>
-	/// Tells the engine whether the app has focus: out of it, the whole output fades to <see cref="AudioOptions.UnfocusedVolume"/>
+	/// Runs <paramref name="effect"/> on <paramref name="bus"/>, after any effects it already has: on everything mixed into
+	/// the bus, before its volume, so a reverb's tail follows the bus's volume with the rest. Add effects at load: a bus
+	/// holds at most <see cref="AudioOptions.MaxEffectsPerBus"/>, and none is removed (<see cref="AudioEffect.Bypass"/>
+	/// turns one off). On the master bus an effect runs before the focus volume and the final clip.
+	/// </summary>
+	/// <exception cref="InvalidOperationException">The bus is full, or the effect already belongs to a bus.</exception>
+	public void AddEffect(AudioBus bus, AudioEffect effect)
+	{
+		CheckThread();
+		CheckBus(bus);
+		ArgumentNullException.ThrowIfNull(effect);
+		if (_busEffects[bus.Index] == _maxEffectsPerBus)
+			throw new InvalidOperationException(
+				$"'{_busNames[bus.Index]}' already holds its {_maxEffectsPerBus} effects: raise AudioOptions.MaxEffectsPerBus for more.");
+		effect.Prepare(SampleRate);
+		Send(new AudioCommand { Kind = AudioCommandKind.AddEffect, Index = bus.Index, Payload = effect });
+		_busEffects[bus.Index]++;
+	}
+
+	/// <summary>
+	/// Mixes <paramref name="from"/> into <paramref name="to"/> at <paramref name="level"/>, as well as into its own parent:
+	/// a share of a bus sent to a reverb. The sound sent is the bus's after its effects, volume and ducks. Make sends at
+	/// load: there are at most <see cref="AudioOptions.MaxSends"/>, and none is removed (a level of 0 silences one). The
+	/// buses may be made in any order: the engine works out which to finish first from what feeds what.
+	/// </summary>
+	/// <param name="from">The bus sending. Not the master, which nothing is mixed after.</param>
+	/// <param name="to">
+	/// The bus receiving. Not a bus <paramref name="from"/> already mixes into, nor one that would make a loop (a bus sending
+	/// to a bus mixed into it, directly or through sends).
+	/// </param>
+	/// <param name="level">A linear gain: 1 sends the bus at its own level.</param>
+	/// <exception cref="ArgumentException">A send to itself, from the master, to a bus it is mixed into, or one making a loop.</exception>
+	public AudioSend AddSend(AudioBus from, AudioBus to, float level = 1f)
+	{
+		CheckThread();
+		CheckBus(from);
+		CheckBus(to);
+		CheckVolume(level);
+		if (from == to)
+			throw new ArgumentException("A bus can't send to itself.", nameof(to));
+		if (from.Index == 0)
+			throw new ArgumentException("The master bus can't send: it is the last mixed.", nameof(from));
+		if (Contains(to.Index, from.Index))
+			throw new ArgumentException($"'{_busNames[from.Index]}' is already mixed into '{_busNames[to.Index]}'.", nameof(to));
+		if (_sendCount == _sendLevels.Length)
+			throw new InvalidOperationException($"The engine already holds its {_sendLevels.Length} sends: raise AudioOptions.MaxSends for more.");
+		// The order with this send in it, worked out before anything is sent: a loop throws here and changes nothing
+		var order = MixOrder(from.Index, to.Index);
+		var index = _sendCount;
+		Send(new AudioCommand { Kind = AudioCommandKind.AddSend, Index = index, Bus = from.Index, Frames = to.Index, A = level });
+		_sendCount++;
+		_sendLevels[index] = level;
+		_sendFrom[index] = from.Index;
+		_sendTo[index] = to.Index;
+		SendMixOrder(order);
+		return new AudioSend(index);
+	}
+
+	/// <summary>Moves <paramref name="send"/>'s level to <paramref name="level"/>, a linear gain, over <paramref name="fadeSeconds"/>.</summary>
+	public void SetSendLevel(AudioSend send, float level, float fadeSeconds = 0f)
+	{
+		CheckThread();
+		CheckSend(send);
+		CheckVolume(level);
+		Send(new AudioCommand { Kind = AudioCommandKind.SendLevel, Index = send.Index, A = level, Frames = FramesFor(fadeSeconds) });
+		_sendLevels[send.Index] = level;
+	}
+
+	/// <summary>The level last set on <paramref name="send"/> (where it is going, if it is still fading).</summary>
+	public float GetSendLevel(AudioSend send)
+	{
+		CheckSend(send);
+		return _sendLevels[send.Index];
+	}
+
+	private void CheckSend(AudioSend send)
+	{
+		if ((uint)send.Index >= (uint)_sendCount)
+			throw new ArgumentOutOfRangeException(nameof(send), send.Index, "No such send in this engine.");
+	}
+
+	/// <summary>
+	/// Tells the engine whether the app has focus: out of it, the whole output fades to <see cref="UnfocusedVolume"/>
 	/// over a quarter of a second, and back on return. A <c>LoomApplication</c> calls it as its window or tab gains and loses
 	/// focus; the game's own volumes are untouched.
 	/// </summary>
 	public void SetFocused(bool focused)
 	{
 		CheckThread();
+		_focused = focused;
 		Send(new AudioCommand { Kind = AudioCommandKind.OutputVolume, A = focused ? 1f : _unfocusedVolume, Frames = FramesFor(0.25f) });
+	}
+
+	/// <summary>
+	/// The output's volume while the app is out of focus, a linear gain: <see cref="AudioOptions.UnfocusedVolume"/> until
+	/// <see cref="SetUnfocusedVolume"/> changes it. It multiplies with every bus's volume, the master's included.
+	/// </summary>
+	public float UnfocusedVolume => _unfocusedVolume;
+
+	/// <summary>
+	/// Changes the output's volume while the app is out of focus, for a setting the player changes as the game runs. In
+	/// focus nothing is heard to change; out of focus the output fades to it over <paramref name="fadeSeconds"/>.
+	/// </summary>
+	/// <param name="volume">A linear gain, zero or more: 1 leaves the app as loud out of focus as in it, 0 silences it.</param>
+	/// <param name="fadeSeconds">How long the output takes to reach it when the app is out of focus now.</param>
+	public void SetUnfocusedVolume(float volume, float fadeSeconds = 0.05f)
+	{
+		CheckThread();
+		CheckVolume(volume);
+		var frames = FramesFor(fadeSeconds);
+		_unfocusedVolume = volume;
+		if (!_focused)
+			Send(new AudioCommand { Kind = AudioCommandKind.OutputVolume, A = volume, Frames = frames });
 	}
 
 	/// <summary>
@@ -640,11 +776,7 @@ public sealed class AudioEngine : IDisposable
 		}
 		var stream = new AudioStream(this, file, decoder, loop);
 		_streams = [.. _streams, stream];
-		if (!_pumpStreams)
-		{
-			_streamer ??= new AudioStreamer();
-			_streamer.SetStreams(_streams);
-		}
+		Worker()?.SetStreams(_streams);
 		return stream;
 	}
 
@@ -654,8 +786,32 @@ public sealed class AudioEngine : IDisposable
 		CheckThread();
 		Stop(stream);
 		_streams = Array.FindAll(_streams, s => s != stream);
-		_streamer?.SetStreams(_streams);
+		_worker?.SetStreams(_streams);
 	}
+
+	// An ahead source starting: rendered ahead from now on, until disposed
+	internal void AddAhead(AheadSource source)
+	{
+		CheckThread();
+		if (Array.IndexOf(_ahead, source) >= 0)
+			return;
+		_ahead = [.. _ahead, source];
+		Worker()?.SetAhead(_ahead);
+	}
+
+	// An ahead source disposing: no more rendering for it
+	internal void RemoveAhead(AheadSource source)
+	{
+		CheckThread();
+		_ahead = Array.FindAll(_ahead, s => s != source);
+		_worker?.SetAhead(_ahead);
+	}
+
+	// The thread doing the work off the audio thread, made the first time it is needed; none when Update does the work
+	private AudioWorker? Worker() => _workOnUpdate ? null : _worker ??= new AudioWorker();
+
+	// Whether the work off the audio thread is done in Update, on the thread calling it, rather than on a worker
+	internal bool WorksOnUpdate => _workOnUpdate;
 
 	private static void CheckStreamChannels(IStreamDecoder decoder)
 	{
@@ -664,24 +820,32 @@ public sealed class AudioEngine : IDisposable
 	}
 
 	/// <summary>
-	/// Hears from the audio thread: frees the voices that have ended, and throws what a source threw there or a stream's
-	/// decoding threw. In the browser it also decodes ahead for the streams. A <c>LoomApplication</c> calls it once a frame;
-	/// an engine used on its own should too.
+	/// Hears from the audio thread: frees the voices that have ended, and throws what a source threw there, a stream's
+	/// decoding threw, or an <see cref="AheadSource"/>'s inner source threw. With <see cref="AudioWork.Update"/> (and in the
+	/// browser, by default) it also decodes ahead for the streams and renders ahead for the ahead sources. A
+	/// <c>LoomApplication</c> calls it once a frame; an engine used on its own should too.
 	/// </summary>
-	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> threw on the audio thread, or an <see cref="AudioStream"/>'s file failed to decode (the inner exception); its voice was stopped.</exception>
+	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> or <see cref="AudioEffect"/> threw on the audio thread, an <see cref="AudioStream"/>'s file failed to decode, or an <see cref="AheadSource"/>'s inner source threw (the inner exception); it was stopped.</exception>
 	public void Update()
 	{
 		CheckThread();
 		TakeEnded();
 		foreach (var stream in _streams)
 		{
-			if (_pumpStreams)
+			if (_workOnUpdate)
 				stream.Fill(int.MaxValue);
 			if (stream.TakeFault() is { } failed)
 				throw new InvalidOperationException($"An audio stream failed to decode, and stopped: {failed.Message}", failed);
 		}
+		foreach (var source in _ahead)
+		{
+			if (_workOnUpdate)
+				source.Fill();
+			if (source.TakeFault() is { } failed)
+				throw new InvalidOperationException($"A source rendered ahead threw, and stopped: {failed.Message}", failed);
+		}
 		if (Interlocked.Exchange(ref _mixer.Fault, null) is { } fault)
-			throw new InvalidOperationException($"An audio source threw on the audio thread, and its voice was stopped: {fault.Message}", fault);
+			throw new InvalidOperationException($"An audio source or effect threw on the audio thread, and was stopped: {fault.Message}", fault);
 	}
 
 	/// <summary>Silences the device until <see cref="Resume"/>: the app has left the screen. Voices hold where they are.</summary>
@@ -705,7 +869,7 @@ public sealed class AudioEngine : IDisposable
 			return;
 		_disposed = true;
 		Device.Dispose();
-		_streamer?.Dispose();
+		_worker?.Dispose();
 		foreach (var stream in _streams)
 			stream.Close();
 		_streams = [];
@@ -806,6 +970,52 @@ public sealed class AudioEngine : IDisposable
 				return true;
 		return false;
 	}
+
+	// The order the mixer finishes the buses below the master in, derived from what feeds what: a bus before the bus it is
+	// mixed into and before the buses it sends to. With `from` and `to` an edge not yet made, checked before it is. Among
+	// buses free to go at once, the last made goes first, which is how buses were mixed before sends could point anywhere.
+	private int[] MixOrder(int from = -1, int to = -1)
+	{
+		var count = _busCount;
+		var waiting = new int[count];   // how many buses must be finished before each
+		for (var b = 1; b < count; b++)
+			if (_busParents[b] != 0)
+				waiting[_busParents[b]]++;
+		for (var s = 0; s < _sendCount; s++)
+			if (_sendTo[s] != 0)
+				waiting[_sendTo[s]]++;
+		if (from > 0 && to > 0)
+			waiting[to]++;
+
+		var order = new int[count - 1];
+		var done = new bool[count];
+		for (var placed = 0; placed < order.Length; placed++)
+		{
+			var next = -1;
+			for (var b = count - 1; b > 0 && next < 0; b--)
+				if (!done[b] && waiting[b] == 0)
+					next = b;
+			if (next < 0)
+			{
+				var stuck = string.Join(", ", Enumerable.Range(1, count - 1).Where(b => !done[b]).Select(b => $"'{_busNames[b]}'"));
+				throw new ArgumentException(
+					$"A send would make a loop: {stuck} would each have to be mixed before another of them. A bus can't send to one mixed into it.");
+			}
+			order[placed] = next;
+			done[next] = true;
+			if (_busParents[next] != 0)
+				waiting[_busParents[next]]--;
+			for (var s = 0; s < _sendCount; s++)
+				if (_sendFrom[s] == next && _sendTo[s] != 0)
+					waiting[_sendTo[s]]--;
+			if (next == from && to > 0)
+				waiting[to]--;
+		}
+		return order;
+	}
+
+	// The mixer told the order derived now
+	private void SendMixOrder(int[] order) => Send(new AudioCommand { Kind = AudioCommandKind.MixOrder, Payload = order });
 
 	private static void CheckVolume(float volume)
 	{

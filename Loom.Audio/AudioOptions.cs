@@ -31,6 +31,12 @@ public sealed class AudioOptions
 	/// <summary>How many ducks (<see cref="AudioEngine.AddDuck(AudioBus, AudioBus, float, float, float, float, float)"/>) the engine can hold. Default 8.</summary>
 	public int MaxDucks { get; set; } = 8;
 
+	/// <summary>How many effects (<see cref="AudioEngine.AddEffect"/>) one bus can hold. Default 8.</summary>
+	public int MaxEffectsPerBus { get; set; } = 8;
+
+	/// <summary>How many sends (<see cref="AudioEngine.AddSend(AudioBus, AudioBus, float)"/>) the engine can hold. Default 16.</summary>
+	public int MaxSends { get; set; } = 16;
+
 	/// <summary>
 	/// The output's volume while the app is out of focus (another window in front, the browser tab hidden): a linear gain
 	/// the whole mix fades to, then back from on return, over a quarter of a second. 1 (the default) keeps playing as is; 0
@@ -50,4 +56,24 @@ public sealed class AudioOptions
 	/// one frame; past it the engine throws rather than drop one.
 	/// </summary>
 	public int CommandCapacity { get; set; } = 4096;
+
+	/// <summary>
+	/// Where the work off the audio thread runs (decoding streams, rendering sources ahead): a thread of its own (the
+	/// default) or <see cref="AudioEngine.Update"/>. In the browser <see cref="AudioWork.Thread"/> is taken as
+	/// <see cref="AudioWork.Update"/> unless <see cref="BrowserThread"/>.
+	/// </summary>
+	public AudioWork Work { get; set; } = AudioWork.Thread;
+
+	/// <summary>
+	/// In the browser, give the work its thread too, as on the desktop, rather than doing it in <see cref="AudioEngine.Update"/>
+	/// on the frame thread. A thread made while a browser app runs can hang its frames, so set <see cref="StartWorker"/> with
+	/// it. False by default.
+	/// </summary>
+	public bool BrowserThread { get; set; }
+
+	/// <summary>
+	/// Make the work's thread as the engine is made, rather than when a stream or an ahead source first needs it. False by
+	/// default; a browser app that sets <see cref="BrowserThread"/> should set this too.
+	/// </summary>
+	public bool StartWorker { get; set; }
 }

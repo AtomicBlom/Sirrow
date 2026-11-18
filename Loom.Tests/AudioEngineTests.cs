@@ -279,13 +279,14 @@ public class AudioEngineTests
 		for (var i = 0; i < 64; i++)
 			Frame(i); // warm up: every path compiled, every pool touched
 
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		for (var i = 0; i < 512; i++)
-			Frame(i);
-		var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-		allocated.ShouldBe(0, "Playing, steering and mixing allocated managed memory once running.");
-		engine.Stats.Callbacks.ShouldBe(576);
+		var windows = 0;
+		Allocations.ShouldAllocateNothing(() =>
+		{
+			windows++;
+			for (var i = 0; i < 512; i++)
+				Frame(i);
+		}, "Playing, steering and mixing allocated managed memory once running.");
+		engine.Stats.Callbacks.ShouldBe(64 + 512 * windows);
 	}
 
 	private sealed class ConstantSource(float value, int frames) : AudioSource
@@ -303,6 +304,36 @@ public class AudioEngineTests
 			right[..n].Fill(value);
 			_left -= n;
 			return _left > 0;
+		}
+	}
+
+	[Test]
+	public void The_highest_load_starts_over_when_reset()
+	{
+		var (engine, device) = Make();
+		engine.Play(new BusySource());
+		// Past the first second, which the highest load leaves out
+		for (var i = 0; i < Rate / Block + 10; i++)
+			Render(device);
+		engine.Stats.MaxRenderLoad.ShouldBeGreaterThan(0.0);
+
+		engine.ResetMaxRenderLoad();
+		engine.Stats.MaxRenderLoad.ShouldBe(0.0);
+
+		Render(device);
+		engine.Stats.MaxRenderLoad.ShouldBeGreaterThan(0.0);
+	}
+
+	// Spins for a few microseconds a block, so a render takes measurable time
+	private sealed class BusySource : AudioSource
+	{
+		protected override bool Render(Span<float> left, Span<float> right, in AudioRenderInfo info)
+		{
+			var until = System.Diagnostics.Stopwatch.GetTimestamp() + System.Diagnostics.Stopwatch.Frequency / 100_000;
+			while (System.Diagnostics.Stopwatch.GetTimestamp() < until)
+			{
+			}
+			return true;
 		}
 	}
 

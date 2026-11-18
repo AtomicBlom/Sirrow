@@ -1,0 +1,41 @@
+<Project>
+
+  <!--
+    The music workbench (Loom.Audio.Workbench) over a demo catalog, with no game: a song, four patches and a kit made
+    here, to show and try every part of the workbench. Run it under dotnet watch, edit Demo/DemoSong.cs and save: the
+    song is rebuilt and swapped in on the next bar. From this folder: dotnet watch run
+  -->
+
+  <PropertyGroup>
+    <UseVulkan>true</UseVulkan>
+    <UseDirectX12>false</UseDirectX12>
+    <UseWebGPU>false</UseWebGPU>
+    <UseSUIsei>true</UseSUIsei>
+    <UseImGui>false</UseImGui>
+  </PropertyGroup>
+
+  <Import Project="..\..\build\Loom.Sdk\Sdk\Sdk.props" />
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>HelloSynth</RootNamespace>
+    <LoomShaderSourceDir>$(MSBuildProjectDirectory)\Shaders</LoomShaderSourceDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Loom.Audio.Workbench\Loom.Audio.Workbench.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <!-- SUIsei's diagnostics endpoint, which RoseMCP's live UI tools reach the window's tree through; Debug only: the
+         switch, and the endpoint itself, which Program starts -->
+    <RuntimeHostConfigurationOption Include="SUIsei.Diagnostics.Enabled" Value="true" Trim="true" />
+    <ProjectReference Include="..\..\external\SUIsei\SUIsei.Diagnostics.Endpoint\SUIsei.Diagnostics.Endpoint.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\..\build\Loom.Sdk\Sdk\Sdk.targets" />
+
+</Project>

@@ -43,4 +43,15 @@ internal enum AudioCommandKind : byte
 	VoicePosition,
 	/// <summary>Voice <see cref="AudioCommand.Index"/> moves at (A, B, C) units a second.</summary>
 	VoiceVelocity,
+	/// <summary>Bus <see cref="AudioCommand.Index"/> runs the <see cref="AudioEffect"/> in <see cref="AudioCommand.Payload"/> after the ones it has.</summary>
+	AddEffect,
+	/// <summary>
+	/// Send <see cref="AudioCommand.Index"/> now exists: bus <see cref="AudioCommand.Bus"/> mixed into bus
+	/// <see cref="AudioCommand.Frames"/> at level A.
+	/// </summary>
+	AddSend,
+	/// <summary>Move send <see cref="AudioCommand.Index"/>'s level to A over <see cref="AudioCommand.Frames"/>.</summary>
+	SendLevel,
+	/// <summary>The buses below the master, in the order to finish them: the <c>int[]</c> in <see cref="AudioCommand.Payload"/>.</summary>
+	MixOrder,
 }
