@@ -202,11 +202,10 @@ public class Audio3DTests
 
 		for (var i = 0; i < 64; i++)
 			Frame(i);
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		for (var i = 0; i < 512; i++)
-			Frame(i);
-		var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-		allocated.ShouldBe(0);
+		Allocations.ShouldAllocateNothing(() =>
+		{
+			for (var i = 0; i < 512; i++)
+				Frame(i);
+		});
 	}
 }

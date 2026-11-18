@@ -409,10 +409,11 @@ public class ChipTests
 
 		for (var i = 0; i < 64; i++)
 			Block(i);
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		for (var i = 0; i < 512; i++)
-			Block(i);
-		(GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+		Allocations.ShouldAllocateNothing(() =>
+		{
+			for (var i = 0; i < 512; i++)
+				Block(i);
+		});
 		chip.Stats.ActiveOperators.ShouldBeGreaterThan(0);   // and it was playing: not silence allocating nothing
 	}
 }

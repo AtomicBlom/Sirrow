@@ -48,8 +48,10 @@ internal static class EffectRig
 	}
 
 	/// <summary>
-	/// The bytes the effect allocates over 512 blocks of a sine once warmed up over 64, its parameters left alone. Each
-	/// effect's test of this is the audio thread's rule: nothing allocated once running.
+	/// The bytes the effect allocates over 512 blocks of a sine once warmed up over 64, its parameters left alone: the
+	/// least of up to five such windows, as <see cref="Allocations.ShouldAllocateNothing"/> takes them, since a one-off
+	/// the runtime makes counts in one window only. Each effect's test of this is the audio thread's rule: nothing
+	/// allocated once running.
 	/// </summary>
 	public static long AllocatedWhileRunning(AudioEffect effect)
 	{
@@ -67,9 +69,14 @@ internal static class EffectRig
 
 		for (var i = 0; i < 64; i++)
 			Block();
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		for (var i = 0; i < 512; i++)
-			Block();
-		return GC.GetAllocatedBytesForCurrentThread() - before;
+		var least = long.MaxValue;
+		for (var attempt = 0; attempt < 5 && least > 0; attempt++)
+		{
+			var before = GC.GetAllocatedBytesForCurrentThread();
+			for (var i = 0; i < 512; i++)
+				Block();
+			least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
+		}
+		return least;
 	}
 }

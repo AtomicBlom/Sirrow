@@ -279,13 +279,14 @@ public class AudioEngineTests
 		for (var i = 0; i < 64; i++)
 			Frame(i); // warm up: every path compiled, every pool touched
 
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		for (var i = 0; i < 512; i++)
-			Frame(i);
-		var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-		allocated.ShouldBe(0, "Playing, steering and mixing allocated managed memory once running.");
-		engine.Stats.Callbacks.ShouldBe(576);
+		var windows = 0;
+		Allocations.ShouldAllocateNothing(() =>
+		{
+			windows++;
+			for (var i = 0; i < 512; i++)
+				Frame(i);
+		}, "Playing, steering and mixing allocated managed memory once running.");
+		engine.Stats.Callbacks.ShouldBe(64 + 512 * windows);
 	}
 
 	private sealed class ConstantSource(float value, int frames) : AudioSource

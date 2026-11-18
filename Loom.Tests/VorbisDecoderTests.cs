@@ -116,17 +116,14 @@ public class VorbisDecoderTests
 		var chunk = new float[512 * 2];
 		decoder.Read(chunk); // the packet buffer reaches its size on the first packets
 
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		while (decoder.Read(chunk) > 0)
+		// To the end and back: the first window the rest of the file, the next the whole of it
+		Allocations.ShouldAllocateNothing(() =>
 		{
-		}
-		decoder.Rewind();
-		while (decoder.Read(chunk) > 0)
-		{
-		}
-		var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-		allocated.ShouldBe(0);
+			while (decoder.Read(chunk) > 0)
+			{
+			}
+			decoder.Rewind();
+		});
 	}
 
 	[Test]

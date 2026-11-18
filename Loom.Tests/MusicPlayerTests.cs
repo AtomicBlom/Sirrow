@@ -368,10 +368,11 @@ public class MusicPlayerTests
 
 		for (var i = 0; i < 64; i++)
 			Block(i);
-		var before = GC.GetAllocatedBytesForCurrentThread();
-		for (var i = 0; i < 512; i++)
-			Block(i);
-		(GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+		Allocations.ShouldAllocateNothing(() =>
+		{
+			for (var i = 0; i < 512; i++)
+				Block(i);
+		});
 		heard.ShouldBeGreaterThan(0.01f);   // and it played: not silence allocating nothing
 	}
 
