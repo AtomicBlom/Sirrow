@@ -26,7 +26,7 @@ dotnet run --project Loom.Audio.Workbench.App -- new ../MyTunes
 
 | File | What it is |
 |---|---|
-| `Songs/demo.song.json` | The song (`loom-song/1`): tempo, scale, tracks, the verse and chorus, each part's notation and condition. The roll edits it. |
+| `Songs/demo.song.json` | The song (`loom-song/2`): tempo, scale, tracks, the verse (twice) and chorus with their exits, each part's notation and condition. The roll edits it. |
 | `Patches/*.patch.json` | The patches (`loom-patch/1`): each operator named, routed by name. The patch designer edits them. |
 | `Catalog.cs` | What the workbench finds: `[assembly: MusicCatalog(typeof(Catalog))]` on a class listing the songs, patches, kits and cues. |
 | `Cues.cs`, `Mood.cs` | The cues the song listens to: `intensity`, a level (the lead comes in with it), and `mood`, one of `Mood`'s values (a motif for each). |
