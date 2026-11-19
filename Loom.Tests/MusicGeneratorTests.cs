@@ -161,7 +161,10 @@ public class MusicGeneratorTests
 		var patchFile = PatchFile.Write(PluckSpec(), ["pick", "saw", "breath"]);
 		var (output, diagnostics, run) = Generate(("Patches/pluck.patch.json", patchFile), ("Songs/tune.song.json", Song));
 		diagnostics.ShouldBeEmpty();
-		run.Results.Single().GeneratedSources.Select(s => s.HintName).ShouldBe(["Patches.g.cs", "Tune.g.cs"], ignoreOrder: true);
+		run.Results.Single().GeneratedSources.Select(s => s.HintName).ShouldBe(["Patches.g.cs", "Tune.g.cs", "SongFiles.g.cs"], ignoreOrder: true);
+		// A file's patch and song are listed as they are added, for a catalog to take without code of its own
+		run.Results.Single().GeneratedSources.Single(s => s.HintName == "Patches.g.cs").SourceText.ToString().ShouldContain("(\"pluck\", () => Pluck),");
+		run.Results.Single().GeneratedSources.Single(s => s.HintName == "SongFiles.g.cs").SourceText.ToString().ShouldContain("(\"tune\", global::Tunes.Songs.Tune.Build),");
 		var patchesCode = run.Results.Single().GeneratedSources.Single(s => s.HintName == "Patches.g.cs").SourceText.ToString();
 		patchesCode.ShouldContain("public static Patch Pluck => Patch.Build(\"pluck\", p =>");
 		patchesCode.ShouldContain("var pick = p.Sine(3f, Env.Decay(0.05f), 0.7f, velocity: 0.5f);");
