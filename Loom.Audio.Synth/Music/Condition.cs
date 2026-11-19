@@ -1,8 +1,9 @@
 namespace Loom.Audio.Synth.Music;
 
 /// <summary>
-/// When a part plays (<see cref="Placement.When"/>): a cue <see cref="Cue.Above"/> or <see cref="Cue.Below"/> a level,
-/// or a choice <see cref="Cue{T}.Is"/> a value, combined with <c>&amp;</c>, <c>|</c> and <c>!</c>.
+/// When a part plays (<see cref="Placement.When"/>) or a section is left by an exit (<see cref="Section.Exit"/>): a cue
+/// <see cref="Cue.Above"/> or <see cref="Cue.Below"/> a level, a choice <see cref="Cue{T}.Is"/> a value, or the
+/// section's <see cref="Pass"/>, combined with <c>&amp;</c>, <c>|</c> and <c>!</c>.
 /// </summary>
 public abstract record Condition
 {
@@ -24,10 +25,15 @@ public abstract record Condition
 	public sealed override string ToString() => Describe();
 
 	/// <summary>
-	/// Whether it holds for the cues as <paramref name="value"/> gives them: each comparison as written, without the
-	/// sequencer's latching, so a tool can say whether a part's condition is met.
+	/// Whether it holds for the cues as <paramref name="value"/> gives them, on the first pass of its section: each
+	/// comparison as the sequencer makes it (a level at or past its threshold), without its latching, so a tool can say
+	/// whether a part's condition is met.
 	/// </summary>
-	public abstract bool IsMet(Func<CueBase, float> value);
+	public bool IsMet(Func<CueBase, float> value) => IsMet(value, 1);
+
+	/// <summary>Whether it holds for the cues as <paramref name="value"/> gives them, on pass <paramref name="pass"/> of
+	/// its section in a row (<see cref="Pass"/>).</summary>
+	public abstract bool IsMet(Func<CueBase, float> value, int pass);
 
 	// Its words, each kind its own
 	internal abstract string Describe();

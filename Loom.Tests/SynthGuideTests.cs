@@ -32,7 +32,9 @@ public class SynthGuideTests
 			var chorus = song.Section("chorus", 4, "VI VII | i | VI VII | i");
 			chorus.Play(drums, Beat.Eighths((Kit.Kick, "x.x. x.x."), (Kit.Snare, "..X. ..X."), (Kit.Crash, "x... ....")));
 			chorus.Play(low, Line.Eighths("1 - 1 - 1 1 5, 1").OverChords());
-			song.Order(verse, verse, chorus);
+			verse.Exit(verse, Pass.Below(2));
+			verse.Then(chorus);
+			chorus.Then(verse);
 			return song;
 		}
 	}

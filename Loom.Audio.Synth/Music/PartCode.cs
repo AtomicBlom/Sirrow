@@ -75,6 +75,7 @@ public static class PartCode
 		AboveCondition above => $"{Cue(above.Cue, cues)}.Above({F(above.Level)})",
 		BelowCondition below => $"{Cue(below.Cue, cues)}.Below({F(below.Level)})",
 		IsCondition @is => $"{Cue(@is.Cue, cues)}.Is({Option(@is.Cue, @is.Value)})",
+		PassCondition pass => $"Pass.{pass.Comparison}({pass.Count})",
 		NotCondition not => $"!{Write(not.A, cues, 2)}",
 		AndCondition and => Bracket($"{Write(and.A, cues, 1)} & {Write(and.B, cues, 1)}", context > 1),
 		OrCondition or => Bracket($"{Write(or.A, cues, 0)} | {Write(or.B, cues, 0)}", context > 0),

@@ -22,7 +22,6 @@ public sealed class Song(string name)
 	private readonly List<SongGroup> _groups = [];
 	private readonly List<SongTrack> _tracks = [];
 	private readonly List<Section> _sections = [];
-	private Section[] _order = [];
 
 	// As many as a chip has instruments
 	internal const int MaxTracks = 64;
@@ -133,7 +132,7 @@ public sealed class Song(string name)
 	/// <summary>Its groups, in the order made.</summary>
 	public IReadOnlyList<SongGroup> Groups => _groups;
 
-	/// <summary>Every cue a condition, a level or a macro names, each once, in the order first named.</summary>
+	/// <summary>Every cue a condition (a part's or an exit's), a level or a macro names, each once, in the order first named.</summary>
 	public IReadOnlyList<CueBase> Cues
 	{
 		get
@@ -157,12 +156,15 @@ public sealed class Song(string name)
 					if (placement.LevelCue is { } level)
 						Add(level);
 				}
+			foreach (var section in _sections)
+				foreach (var exit in section.Exits)
+					if (exit.When is { } when)
+						foreach (var cue in when.Cues)
+							Add(cue);
 			return cues;
 		}
 	}
 
-	internal IReadOnlyList<Section> OrderList => _order;
-	internal Func<Conductor, Section>? Conductor { get; private set; }
 
 	/// <summary>A group of tracks sharing <paramref name="effects"/> (<see cref="Effects.Fx"/> makes them).</summary>
 	public SongGroup Group(string name, params Func<AudioEffect>[] effects)
@@ -220,29 +222,6 @@ public sealed class Song(string name)
 		var section = new Section(this, name, _sections.Count, bars, new SectionChords(chords));
 		_sections.Add(section);
 		return section;
-	}
-
-	/// <summary>The sections played in turn, then from the first again.</summary>
-	public void Order(params Section[] sections)
-	{
-		CheckOpen();
-
-		ArgumentNullException.ThrowIfNull(sections);
-		foreach (var section in sections)
-			if (section.Song != this)
-				throw new ArgumentException($"Section '{section.Name}' belongs to another song.", nameof(sections));
-		_order = [.. sections];
-		Conductor = null;
-	}
-
-	/// <summary>The next section chosen in code, near the end of each section, from the cues and what is playing.</summary>
-	public void Conduct(Func<Conductor, Section> next)
-	{
-		CheckOpen();
-
-		ArgumentNullException.ThrowIfNull(next);
-		Conductor = next;
-		_order = [];
 	}
 
 	/// <inheritdoc/>

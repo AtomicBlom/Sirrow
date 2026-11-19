@@ -23,8 +23,6 @@ internal sealed class CompiledSong
 	public CompiledTrack[] Tracks { get; private init; } = [];
 	public CueBase[] Cues { get; private init; } = [];
 	public CompiledSection[] Sections { get; private init; } = [];
-	public int[] Order { get; private init; } = [];       // section indices in turn; empty when conducted
-	public bool Conducted { get; private init; }
 	public int LatchCount { get; private init; }
 	public int MostPlacements { get; private init; }
 	public ChipOptions ChipOptions { get; private init; } = new();
@@ -149,6 +147,19 @@ internal sealed class CompiledSong
 				};
 			}
 			most = Math.Max(most, placements.Length);
+			var exits = new CompiledExit[section.Exits.Count];
+			for (var e = 0; e < exits.Length; e++)
+			{
+				var program = new List<ConditionOp>();
+				if (section.Exits[e].When is { } when)
+				{
+					Emit(when, program, Slot, ref latches);
+					if (Depth(program) > ConditionDepth)
+						throw new InvalidOperationException(
+							$"Song '{song.Name}': the condition on exit {e + 1} of '{section.Name}' nests deeper than {ConditionDepth}: write it flatter.");
+				}
+				exits[e] = new CompiledExit([.. program], section.Exits[e].To.Index);
+			}
 			sections[s] = new CompiledSection
 			{
 				Source = section,
@@ -156,10 +167,10 @@ internal sealed class CompiledSong
 				LengthTicks = length,
 				Placements = placements,
 				Sweeps = [.. section.Sweeps.Select(w => (w.Track.Index, w.Macro.Id, w.From, w.To))],
+				Exits = exits,
 			};
 		}
 
-		var order = song.Conductor is not null ? [] : song.OrderList.Count > 0 ? song.OrderList.Select(o => o.Index).ToArray() : [0];
 		ChipGroup[] groups = [new("main"), .. song.Groups.Select(g => new ChipGroup(g.Name, g.Effects))];
 
 		// What plays is made from the song as it is now: from here on it is fixed
@@ -173,8 +184,6 @@ internal sealed class CompiledSong
 			Tracks = tracks,
 			Cues = cues,
 			Sections = sections,
-			Order = order,
-			Conducted = song.Conductor is not null,
 			LatchCount = latches,
 			MostPlacements = most,
 			ChipOptions = new ChipOptions
@@ -203,6 +212,18 @@ internal sealed class CompiledSong
 				break;
 			case IsCondition @is:
 				program.Add(new ConditionOp { Kind = ConditionOpKind.Is, Slot = slot(@is.Cue), Value = @is.Value });
+				break;
+			case PassCondition pass:
+				program.Add(new ConditionOp
+				{
+					Kind = pass.Comparison switch
+					{
+						PassComparison.Above => ConditionOpKind.PassAbove,
+						PassComparison.Below => ConditionOpKind.PassBelow,
+						_ => ConditionOpKind.PassIs,
+					},
+					Value = pass.Count,
+				});
 				break;
 			case AndCondition and:
 				Emit(and.A, program, slot, ref latches);

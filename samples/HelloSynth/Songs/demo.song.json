@@ -1,5 +1,5 @@
 {
-  "format": "loom-song/1",
+  "format": "loom-song/2",
   "name": "demo",
   "about": "The demo song: two sections over the same groove, a bass over the chords, a lead that comes in with the intensity, and a motif per mood that comes in only where its phrase starts.",
   "tempo": 112,
@@ -66,7 +66,8 @@
           "when": "mood is Dark",
           "onPhrase": true
         }
-      ]
+      ],
+      "exits": [{ "when": "pass < 2", "then": "verse" }, { "then": "chorus" }]
     },
     {
       "name": "chorus",
@@ -86,8 +87,8 @@
           "notes": "8 - 7 5 | 8 - - - | 8 - 9 7 | 8 - - -",
           "when": "intensity > 0.5"
         }
-      ]
+      ],
+      "exits": [{ "then": "verse" }]
     }
-  ],
-  "order": ["verse", "verse", "chorus"]
+  ]
 }

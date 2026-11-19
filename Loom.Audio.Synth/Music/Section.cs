@@ -1,9 +1,11 @@
 namespace Loom.Audio.Synth.Music;
 
-/// <summary>A stretch of a song (a verse, a chorus) some bars long over its chords, and the parts its tracks play in it.</summary>
+/// <summary>A stretch of a song (a verse, a chorus) some bars long over its chords, the parts its tracks play in it, and
+/// where the song goes as it ends (<see cref="Exits"/>).</summary>
 public sealed class Section
 {
 	private readonly List<Placement> _placements = [];
+	private readonly List<SectionExit> _exits = [];
 
 	internal Section(Song song, string name, int index, int bars, SectionChords chords)
 	{
@@ -31,6 +33,42 @@ public sealed class Section
 
 	/// <summary>Its chords as written, a bar to each <c>|</c>: "I | IV | V vi | I".</summary>
 	public string ChordText => Chords.Text;
+
+	/// <summary>Its chords bar by bar, as written and as read. Fewer bars than the section has repeat to fill it.</summary>
+	public IReadOnlyList<ChordBar> Progression => Chords.Progression;
+
+	/// <summary>
+	/// Its ways out, in the order they are tried as it ends: the first whose condition holds is taken, and the last, made by
+	/// <see cref="Then"/>, always holds. A section with none plays again.
+	/// </summary>
+	public IReadOnlyList<SectionExit> Exits => _exits;
+
+	/// <summary>
+	/// As it ends, the song goes on to <paramref name="to"/> if <paramref name="when"/> holds, before any exit added after
+	/// this: <c>verse.Exit(chorus, Cues.Intensity.Above(0.7f))</c>, <c>verse.Exit(verse, Pass.Below(2))</c>.
+	/// </summary>
+	/// <exception cref="InvalidOperationException">An exit that always holds (<see cref="Then"/>) was added already, so none after it could be taken.</exception>
+	public void Exit(Section to, Condition when)
+	{
+		ArgumentNullException.ThrowIfNull(when);
+		AddExit(to, when);
+	}
+
+	/// <summary>As it ends, if no exit before this held, the song goes on to <paramref name="to"/>: the last exit.</summary>
+	/// <exception cref="InvalidOperationException">It has such an exit already.</exception>
+	public void Then(Section to) => AddExit(to, null);
+
+	private void AddExit(Section to, Condition? when)
+	{
+		Song.CheckOpen();
+
+		ArgumentNullException.ThrowIfNull(to);
+		if (to.Song != Song)
+			throw new ArgumentException($"Section '{to.Name}' belongs to another song.", nameof(to));
+		if (_exits.Count > 0 && _exits[^1].When is null)
+			throw new InvalidOperationException($"Section '{Name}' always goes on to '{_exits[^1].To.Name}' already: an exit after that could never be taken.");
+		_exits.Add(new SectionExit(when, to));
+	}
 
 	/// <summary>
 	/// <paramref name="track"/> plays <paramref name="part"/> through the section: repeated if shorter, cut at the end if

@@ -95,9 +95,11 @@ public sealed class MusicGenerator : IIncrementalGenerator
 		{
 			var root = Json.Parse(text.ToString());
 			var format = root["format"]?.Str;
-			var expected = path.EndsWith(".patch.json", StringComparison.OrdinalIgnoreCase) ? "loom-patch/1" : "loom-song/1";
+			var expected = path.EndsWith(".patch.json", StringComparison.OrdinalIgnoreCase) ? "loom-patch/1" : "loom-song/2";
 			if (format != expected)
-				throw new JsonError($"{Path.GetFileName(path)} says \"format\": \"{format}\"; the generator reads \"{expected}\"", root["format"]?.Span ?? new TextSpan(0, 0));
+				throw new JsonError($"{Path.GetFileName(path)} says \"format\": \"{format}\"; the generator reads \"{expected}\""
+					+ (format == "loom-song/1" ? " (move the song-wide \"order\" or \"conduct\" into each section's \"exits\", then set the format)" : ""),
+					root["format"]?.Span ?? new TextSpan(0, 0));
 			return root;
 		}
 		catch (JsonError error)

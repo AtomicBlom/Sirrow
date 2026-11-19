@@ -3,7 +3,7 @@ using System.Text;
 namespace Loom.Audio.Music.Generator;
 
 /// <summary>
-/// A <c>loom-song/1</c> file as the class that builds it: <c>static partial class OpenRoad { public static Song Build()
+/// A <c>loom-song/2</c> file as the class that builds it: <c>static partial class OpenRoad { public static Song Build()
 /// … }</c>, the calls a person would have made, in the order the file has them. A piece that is code is a partial
 /// member declared here and called where the piece was; a hook is a partial method called once the rest is built.
 /// </summary>
@@ -197,20 +197,29 @@ internal sealed class SongEmitter(MusicContext context)
 			named.Str is { } sectionName && sections.TryGetValue(sectionName, out var v) ? v : throw new JsonError($"no section is named {named}", named.Span);
 
 		if (root["order"] is { } orderList)
-		{
-			body.Add("");
-			body.Add($"song.Order({string.Join(", ", orderList.Items.Select(SectionVar))});");
-		}
+			throw new JsonError("a song-wide \"order\" is loom-song/1's: give each section its \"exits\" (an order A, B, C is A's [{ \"then\": \"B\" }] and so on round)", orderList.Span);
 		if (root["conduct"] is { } conduct)
+			throw new JsonError("a song-wide \"conduct\" is loom-song/1's: its rules are each section's \"exits\"", conduct.Span);
+		var exitLines = new List<string>();
+		foreach (var section in root["sections"]?.Items ?? [])
 		{
-			var rules = conduct.Items;
-			if (rules.Count == 0 || rules[rules.Count - 1]["when"] is not null)
-				throw new JsonError("the last of \"conduct\"'s rules has a \"when\": the last has none, so a section is always chosen", conduct.Span);
-			var choice = SectionVar(rules[rules.Count - 1]["then"] ?? throw new JsonError("a rule says \"then\"", rules[rules.Count - 1].Span));
-			for (var i = rules.Count - 2; i >= 0; i--)
-				choice = $"{_conditions.Conductor(rules[i]["when"]!)} ? {SectionVar(rules[i]["then"] ?? throw new JsonError("a rule says \"then\"", rules[i].Span))} : {choice}";
+			var from = SectionVar(section["name"]!);
+			var exits = section["exits"]?.Items ?? [];
+			for (var i = 0; i < exits.Count; i++)
+			{
+				var to = SectionVar(exits[i]["then"] ?? throw new JsonError("an exit says \"then\"", exits[i].Span));
+				if (exits[i]["when"] is { } when)
+					exitLines.Add($"{from}.Exit({to}, {_conditions.Placement(when)});");
+				else if (i < exits.Count - 1)
+					throw new JsonError("an exit with no \"when\" is always taken, so it comes last", exits[i].Span);
+				else
+					exitLines.Add($"{from}.Then({to});");
+			}
+		}
+		if (exitLines.Count > 0)
+		{
 			body.Add("");
-			body.Add($"song.Conduct(now => {choice});");
+			body.AddRange(exitLines);
 		}
 		foreach (var hook in root["hooks"]?.Items ?? [])
 		{

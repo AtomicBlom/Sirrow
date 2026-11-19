@@ -6,7 +6,9 @@ namespace Loom.Audio.Synth.Music;
 /// <summary>
 /// A condition as a song file writes it: <c>"intensity &gt; 0.6"</c>, <c>"intensity &lt; 0.2"</c>, <c>"biome is Forest"</c>,
 /// joined by <c>and</c>, <c>or</c> and <c>not</c>, with brackets where the order needs them (<c>and</c> binds tighter
-/// than <c>or</c>). Cues are named as they name themselves; a choice cue's value by its option's name.
+/// than <c>or</c>). Cues are named as they name themselves; a choice cue's value by its option's name. <c>pass</c> is the
+/// section's pass in a row, 1 the first time (<see cref="Pass"/>): <c>"pass &lt; 2"</c>, <c>"pass &gt; 1"</c>,
+/// <c>"pass is 4"</c>, compared exactly; no cue may be called <c>pass</c>.
 /// </summary>
 public static class ConditionText
 {
@@ -23,6 +25,12 @@ public static class ConditionText
 		AboveCondition above => $"{above.Cue.Name} > {Number(above.Level)}",
 		BelowCondition below => $"{below.Cue.Name} < {Number(below.Level)}",
 		IsCondition @is => $"{@is.Cue.Name} is {Option(@is.Cue, @is.Value)}",
+		PassCondition pass => pass.Comparison switch
+		{
+			PassComparison.Above => $"pass > {pass.Count}",
+			PassComparison.Below => $"pass < {pass.Count}",
+			_ => $"pass is {pass.Count}",
+		},
 		NotCondition not => $"not {Write(not.A, 2)}",
 		AndCondition and => Bracket($"{Write(and.A, 1)} and {Write(and.B, 1)}", context > 1),
 		OrCondition or => Bracket($"{Write(or.A, 0)} or {Write(or.B, 0)}", context > 0),
@@ -134,6 +142,8 @@ public static class ConditionText
 					throw Error("a bracket isn't closed");
 				return inner;
 			}
+			if (token == "pass")
+				return PassCompare(Next(), Next());
 			var cue = cues(token) ?? throw Error($"no cue is named \"{token}\"");
 			var op = Next();
 			var value = Next();
@@ -151,6 +161,19 @@ public static class ConditionText
 				default:
 					throw Error($"\"{token} {op}\" isn't a comparison this cue makes (a level is > or <, a choice is)");
 			}
+		}
+
+		private Condition PassCompare(string op, string value)
+		{
+			if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var count))
+				throw Error($"\"{value}\" isn't a whole number of passes");
+			return op switch
+			{
+				">" => Pass.Above(count),
+				"<" => Pass.Below(count),
+				"is" => Pass.Is(count),
+				_ => throw Error($"\"pass {op}\" isn't a comparison (>, < or is)"),
+			};
 		}
 
 		private float Level(string value) =>

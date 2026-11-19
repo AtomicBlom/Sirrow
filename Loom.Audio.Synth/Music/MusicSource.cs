@@ -39,7 +39,6 @@ internal sealed class MusicSource : AudioSource
 	private double _nextEvent = double.MaxValue;
 
 	private int _section;
-	private int _orderPosition;
 	private int _pass = 1;
 	private long _bar = -1;
 	private int _next = -1;
@@ -56,6 +55,12 @@ internal sealed class MusicSource : AudioSource
 
 	private readonly bool[] _stack = new bool[CompiledSong.ConditionDepth];
 
+	// The frame each track's note (a MIDI number, or a kit's piece by its index) sounds until, and each track's notes
+	// sounding as the last block ended, published as two 64-bit halves of a 128-bit mask: for a tool lighting keys
+	private const double HitSeconds = 0.12;
+	private readonly long[] _soundingUntil = new long[Song.MaxTracks * 128];
+	private readonly long[] _publishedSounding = new long[Song.MaxTracks * 2];
+
 	// Published for the game thread
 	private volatile int _publishedSection;
 	private volatile int _publishedBar = 1;
@@ -71,7 +76,7 @@ internal sealed class MusicSource : AudioSource
 		_state = state;
 		_publishedState = state;
 		_core = state.Core;
-		_section = state.Song.Order.Length > 0 ? state.Song.Order[0] : 0;
+		_section = 0;
 	}
 
 	public ChipCore Core => _core;
@@ -85,9 +90,13 @@ internal sealed class MusicSource : AudioSource
 	public long AbsoluteBar => Volatile.Read(ref _publishedAbsoluteBar);
 	public int TicksLeft => _publishedTicksLeft;
 	public int Pass => _publishedPass;
-	// Where in the song's order the section playing is; read on the game thread only to show what comes next
-	internal int OrderPosition => _orderPosition;
 	public int SectionStarts => _sectionStarts;
+
+	// Which of a track's notes (or a kit's pieces) sounded as the last block ended: bit n of the 128 for note or piece n
+	public UInt128 Sounding(int track) =>
+		(uint)track < Song.MaxTracks
+			? new UInt128((ulong)Volatile.Read(ref _publishedSounding[track * 2 + 1]), (ulong)Volatile.Read(ref _publishedSounding[track * 2]))
+			: UInt128.Zero;
 
 	// Game thread: a command for the next block
 	public void Post(in MusicCommand command)
@@ -266,7 +275,8 @@ internal sealed class MusicSource : AudioSource
 		}
 	}
 
-	// The section's end: the next one decided, else the next in the song's order, else the same again; Loop holds it
+	// The section's end: Loop holds it; else a section a tool chose; else the first of its exits that holds, on the pass
+	// ending; else the same again
 	private void EndSection(int length)
 	{
 		var song = _state.Song;
@@ -274,17 +284,14 @@ internal sealed class MusicSource : AudioSource
 		if (_loop)
 			next = _section;
 		else if (_next >= 0 && _next < song.Sections.Length)
-		{
 			next = _next;
-			var at = Array.IndexOf(song.Order, next);
-			if (at >= 0)
-				_orderPosition = at;
-		}
-		else if (song.Order.Length > 0)
-		{
-			_orderPosition = (_orderPosition + 1) % song.Order.Length;
-			next = song.Order[_orderPosition];
-		}
+		else
+			foreach (var exit in song.Sections[_section].Exits)
+				if (Holds(exit.When))
+				{
+					next = exit.To;
+					break;
+				}
 		_next = -1;
 		_tick -= length;
 		Begin(next, sameCounts: next == _section);
@@ -323,9 +330,6 @@ internal sealed class MusicSource : AudioSource
 			// The jump's section starts at this frame
 			_tick = -f * _ticksPerFrame;
 			Begin(target, sameCounts: false);
-			var at = Array.IndexOf(_state.Song.Order, target);
-			if (at >= 0)
-				_orderPosition = at;
 			return;
 		}
 
@@ -371,6 +375,7 @@ internal sealed class MusicSource : AudioSource
 	{
 		_swap = null;
 		_core.Handle(new ChipEvent { Kind = ChipEventKind.AllOff });
+		Array.Clear(_soundingUntil);
 		_outgoing = _core;
 		_outgoingLeft = (int)(OutgoingSeconds * _rate);
 		_outgoingFrom = f;
@@ -392,13 +397,11 @@ internal sealed class MusicSource : AudioSource
 		_nextBar = tick;
 		_nextEvent = double.MaxValue;
 		_next = -1;
-		if (song.Order.Length > 0)
-			_orderPosition = Math.Max(0, Array.IndexOf(song.Order, section));
 		ApplyMutes(swap);
 		SnapLevels();
 	}
 
-	// Whether a placement's condition holds now, run over its postfix steps
+	// Whether a placement's or an exit's condition holds now, run over its postfix steps
 	private bool Holds(ConditionOp[] program)
 	{
 		if (program.Length == 0)
@@ -428,6 +431,15 @@ internal sealed class MusicSource : AudioSource
 					}
 				case ConditionOpKind.Is:
 					_stack[top++] = MathF.Abs(Volatile.Read(ref cues[op.Slot]) - op.Value) < 0.5f;
+					break;
+				case ConditionOpKind.PassAbove:
+					_stack[top++] = _pass > op.Value;
+					break;
+				case ConditionOpKind.PassBelow:
+					_stack[top++] = _pass < op.Value;
+					break;
+				case ConditionOpKind.PassIs:
+					_stack[top++] = _pass == (int)op.Value;
 					break;
 				case ConditionOpKind.And:
 					top--;
@@ -506,6 +518,9 @@ internal sealed class MusicSource : AudioSource
 			Remember(p, chip.NoteId, frame + delay + frames);
 		}
 		chip.GainSlot = placement.GainSlot + 1;
+		var key = e.Piece >= 0 ? Math.Min(e.Piece, 127) : Math.Clamp((int)MathF.Round(e.Note), 0, 127);
+		ref var until = ref _soundingUntil[placement.Track * 128 + key];
+		until = Math.Max(until, frame + delay + (e.Piece >= 0 ? (long)(HitSeconds * _rate) : frames));
 		if (delay > 0 && _pendingCount < PendingCapacity)
 		{
 			_pendingDue[_pendingCount] = frame + delay;
@@ -550,6 +565,7 @@ internal sealed class MusicSource : AudioSource
 	// Every part of the section playing let go of its notes
 	private void LetGoAll(long frame)
 	{
+		Array.Clear(_soundingUntil);
 		var count = _state.Song.Sections[_section].Placements.Length;
 		for (var p = 0; p < count; p++)
 			if (_state.NoteCount[p] > 0)
@@ -624,5 +640,19 @@ internal sealed class MusicSource : AudioSource
 		var peaks = _core.InstrumentPeak;
 		for (var i = 0; i < state.Peaks.Length && i < peaks.Length; i++)
 			Volatile.Write(ref state.Peaks[i], peaks[i]);
+		for (var track = 0; track < song.Tracks.Length; track++)
+		{
+			ulong low = 0, high = 0;
+			var at = track * 128;
+			for (var k = 0; k < 64; k++)
+			{
+				if (_soundingUntil[at + k] > _frame)
+					low |= 1UL << k;
+				if (_soundingUntil[at + 64 + k] > _frame)
+					high |= 1UL << k;
+			}
+			Volatile.Write(ref _publishedSounding[track * 2], (long)low);
+			Volatile.Write(ref _publishedSounding[track * 2 + 1], (long)high);
+		}
 	}
 }
