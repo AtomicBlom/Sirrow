@@ -4,8 +4,8 @@ namespace Loom.Audio.Synth.Music;
 
 /// <summary>
 /// A piece of music as code: its tempo, meter and scale, its tracks (patches and kits, in groups of effects), its
-/// sections and the parts played in each, and the order they come in. Build one in a method that makes it anew each
-/// time (so hot reload rebuilds it), then hand it to a <see cref="MusicPlayer"/>.
+/// sections and the parts played in each, and where each section goes as it ends (<see cref="Section.Exits"/>). Build one
+/// in a method that makes it anew each time (so hot reload rebuilds it), then hand it to a <see cref="MusicPlayer"/>.
 /// <code>
 /// var song = new Song("groove") { Tempo = 128, Scale = Scale.Minor(Note.E) };
 /// var drums = song.Track("drums", kit);
@@ -13,7 +13,11 @@ namespace Loom.Audio.Synth.Music;
 /// var verse = song.Section("verse", 4, "i | VI | III | VII");
 /// verse.Play(drums, Beat.Eighths((Kit.Kick, "x... x..."), (Kit.Snare, "..x. ..x.")));
 /// verse.Play(bass, Line.Eighths("1 1 . 1 5, 1 . 1").OverChords());
-/// song.Order(verse);
+/// var chorus = song.Section("chorus", 4, "VI | VII | i | i");
+/// chorus.Play(drums, Beat.Eighths((Kit.Kick, "x.x. x.x."), (Kit.Snare, "..x. ..x.")));
+/// verse.Exit(verse, Pass.Below(2));
+/// verse.Then(chorus);
+/// chorus.Then(verse);
 /// </code>
 /// </summary>
 /// <param name="name">Its name.</param>

@@ -42,6 +42,8 @@ internal sealed class ConditionCode(MusicContext context)
 		{
 			if (!int.TryParse(c.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var count))
 				throw new JsonError($"\"{c.Value}\" isn't a whole number of passes", where.Span);
+			if (count < 1)
+				throw new JsonError($"\"pass {c.Op} {c.Value}\": passes count from 1, the first time through", where.Span);
 			var kind = c.Op switch { ">" => "Above", "<" => "Below", _ => "Is" };
 			return $"global::Loom.Audio.Synth.Music.Pass.{kind}({count})";
 		}

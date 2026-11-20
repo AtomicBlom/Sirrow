@@ -27,6 +27,8 @@ public sealed class MusicPlayer : IDisposable
 	private readonly Dictionary<(string Section, string Placement), PlacementState> _forced = [];
 	private readonly List<AudioSource> _fading = [];
 	private readonly double _aheadSeconds;
+	// CueValue as a delegate, made once: a condition asked many times a second takes it rather than a new one each time
+	private readonly Func<CueBase, float> _cueValue;
 	private MusicSource? _source;
 	private AudioSource? _played;   // what the engine plays: the song's source, or an AheadSource wrapping it
 	private SongState? _swapping;   // a swap posted but not yet known taken
@@ -45,6 +47,7 @@ public sealed class MusicPlayer : IDisposable
 		_audio = audio;
 		_bus = bus;
 		_aheadSeconds = aheadSeconds;
+		_cueValue = CueValue;
 	}
 
 	/// <summary>How far ahead of the speaker songs are rendered, in seconds: 0 renders them live, on the audio thread.</summary>
@@ -111,7 +114,7 @@ public sealed class MusicPlayer : IDisposable
 			if (SectionPlaying is not { } current || _source is not { } source)
 				return -1;
 			for (var e = 0; e < current.Exits.Count; e++)
-				if (current.Exits[e].When is not { } when || when.IsMet(CueValue, source.Pass))
+				if (current.Exits[e].When is not { } when || when.IsMet(_cueValue, source.Pass))
 					return e;
 			return -1;
 		}

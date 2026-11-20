@@ -610,8 +610,8 @@ if the track never set it).
 chorus when the energy is up, `verse.Exit(verse, Pass.Below(2))` plays the verse once more, and `verse.Then(chorus)`, the
 last, goes there otherwise. They are tried in order as the section ends, by the sequencer itself on the audio thread,
 their conditions latched as a part's are; a section with none plays again. `Pass` is which pass of the section in a row
-this is, 1 the first time, compared exactly (`Pass.Above`, `Below`, `Is`): a part can use it too, a fill on the fourth
-time round. `MusicPlayer.NextSection` and `NextExit` say where the section would go were it ending now, for a tool to
+this is, 1 the first time, compared exactly (`Pass.Above`, `Below`, `Is`), so its `>` and `<` are strict where a cue's
+hold at the level; a count below 1 is refused. A part can use it too, a fill on the fourth time round. `MusicPlayer.NextSection` and `NextExit` say where the section would go were it ending now, for a tool to
 show. The song starts at its first section. A `Jump` lets go of what was sounding.
 
 ### Cues and conditions

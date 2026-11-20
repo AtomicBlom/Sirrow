@@ -63,6 +63,17 @@ public class SectionExitTests
 	}
 
 	[Test]
+	public void A_pass_count_below_one_is_refused()
+	{
+		// Passes count from 1: pass is 0 or pass < 1 never holds, and pass > 0 always does
+		Should.Throw<ArgumentOutOfRangeException>(() => Pass.Is(0));
+		Should.Throw<ArgumentOutOfRangeException>(() => Pass.Below(0));
+		Should.Throw<ArgumentOutOfRangeException>(() => Pass.Above(0));
+		Should.Throw<FormatException>(() => ConditionText.Parse("pass is 0", _ => null)).Message.ShouldContain("count from 1");
+		ConditionText.Parse("pass is 1", _ => null).IsMet(_ => 0f, 1).ShouldBeTrue();
+	}
+
+	[Test]
 	public void Exits_are_read_from_and_written_to_a_file()
 	{
 		var song = SongFile.Load(File, Bindings);

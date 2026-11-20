@@ -167,6 +167,8 @@ public static class ConditionText
 		{
 			if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var count))
 				throw Error($"\"{value}\" isn't a whole number of passes");
+			if (count < 1)
+				throw Error($"\"pass {op} {value}\": passes count from 1, the first time through");
 			return op switch
 			{
 				">" => Pass.Above(count),
