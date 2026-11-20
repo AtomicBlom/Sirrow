@@ -148,7 +148,8 @@ public class MusicPlayerTests
 		first.Play(song.Track("tone", ChipRig.Tone), Line.Quarters(". . . ."));
 		var second = song.Section("second", 1);
 		second.Play(song.Track("click", MusicRig.Click), Line.Quarters("1 1 1 1")).Level(level);
-		song.Order(first, second);
+		first.Then(second);
+		second.Then(first);
 		using var rig = new MusicRig();
 		rig.Player.Play(song);
 		rig.Step(2 * MusicRig.Bar);
@@ -158,23 +159,78 @@ public class MusicPlayerTests
 	}
 
 	[Test]
-	public void A_conducted_song_moves_on_though_no_update_came_in_its_last_beat()
+	public void A_section_leaves_by_its_exit_with_no_update_from_the_game()
 	{
-		var song = new Song("conducted");
+		var song = new Song("exits");
 		var tone = song.Track("tone", ChipRig.Tone);
 		var a = song.Section("a", 1);
 		a.Play(tone, Line.Quarters("1 - - -"));
 		var b = song.Section("b", 1);
 		b.Play(tone, Line.Quarters("5 - - -"));
-		song.Conduct(now => now.Current == a ? b : a);
+		a.Then(b);
+		b.Then(a);
 		using var rig = new MusicRig();
 		rig.Player.Play(song);
 		rig.Step(256);
-		// A frame longer than the section's last beat: nothing asks there
+		// A frame longer than the section's last beat, and no Update: the sequencer takes the exit itself
 		rig.Session.Render(MusicRig.Bar);
-		rig.Player.Update();
 
 		rig.Player.Position.Section.ShouldBe("b");
+	}
+
+	[Test]
+	public void Exits_are_tried_in_order_and_a_pass_holds_a_section_for_its_passes()
+	{
+		var song = new Song("passes");
+		var tone = song.Track("tone", ChipRig.Tone);
+		var verse = song.Section("verse", 1);
+		verse.Play(tone, Line.Quarters("1 - - -"));
+		var chorus = song.Section("chorus", 1);
+		chorus.Play(tone, Line.Quarters("5 - - -"));
+		verse.Exit(verse, Pass.Below(2));
+		verse.Then(chorus);
+		chorus.Then(verse);
+		using var rig = new MusicRig();
+		rig.Player.Play(song);
+		var seen = new List<string>();
+		for (var bar = 0; bar < 5; bar++)
+		{
+			rig.StepTo(bar * MusicRig.Bar + MusicRig.Bar / 2);
+			seen.Add(rig.Player.Position.Section);
+		}
+
+		seen.ShouldBe(["verse", "verse", "chorus", "verse", "verse"]);
+	}
+
+	[Test]
+	public void The_next_section_and_the_exit_taken_are_known_before_the_section_ends()
+	{
+		var energy = new Cue("energy");
+		var song = new Song("next");
+		var tone = song.Track("tone", ChipRig.Tone);
+		var calm = song.Section("calm", 2);
+		calm.Play(tone, Line.Quarters("1 - - -"));
+		var loud = song.Section("loud", 2);
+		loud.Play(tone, Line.Quarters("5 - - -"));
+		calm.Exit(loud, energy.Above(0.6f));
+		using var rig = new MusicRig();
+		rig.Player.Play(song);
+		rig.Step(MusicRig.Bar / 2);
+		(rig.Player.NextExit, rig.Player.NextSection?.Name).ShouldBe((-1, "calm"));
+
+		rig.Player.Set(energy, 0.8f);
+		(rig.Player.NextExit, rig.Player.NextSection?.Name).ShouldBe((0, "loud"));
+		song.Cues.ShouldContain(energy);   // read by an exit alone, the song reads it
+	}
+
+	[Test]
+	public void An_exit_after_one_that_always_holds_is_refused()
+	{
+		var song = new Song("refused");
+		var a = song.Section("a", 1);
+		var b = song.Section("b", 1);
+		a.Then(b);
+		Should.Throw<InvalidOperationException>(() => a.Exit(a, Pass.Below(2)));
 	}
 
 	[Test]
@@ -211,7 +267,8 @@ public class MusicPlayerTests
 		build.Sweep(track, macro, 0f, 1f);
 		var after = song.Section("after", 1);
 		after.Play(track, Line.Quarters("1 1 1 1"));
-		song.Order(build, after);
+		build.Then(after);
+		after.Then(build);
 
 		using var rig = new MusicRig();
 		rig.Player.Play(song);
@@ -251,24 +308,6 @@ public class MusicPlayerTests
 
 		rig.Pitch(MusicRig.Bar / 4, MusicRig.Bar / 2).ShouldBe(392, 4);   // G4, the fifth of C major
 		Should.Throw<InvalidOperationException>(() => rig.Player.Play(prepared)).Message.ShouldContain("prepare it again");
-	}
-
-	[Test]
-	public void A_conductor_that_throws_is_thrown_from_update_and_the_section_loops()
-	{
-		var song = Held("faulty", "1");
-		song.Conduct(_ => throw new InvalidDataException("on purpose"));
-		using var rig = new MusicRig();
-		rig.Player.Play(song);
-
-		// Asked as the section starts: it throws then, and isn't asked again that section
-		Should.Throw<InvalidOperationException>(() => rig.Step(MusicRig.Bar)).InnerException.ShouldBeOfType<InvalidDataException>();
-		rig.StepTo(MusicRig.Bar);
-		// The section looped, and is asked again as it starts over
-		Should.Throw<InvalidOperationException>(() => rig.StepTo(MusicRig.Bar + MusicRig.Bar / 2));
-		rig.StepTo(MusicRig.Bar + MusicRig.Bar / 2);
-		rig.Player.Position.Section.ShouldBe("a");
-		rig.Player.Position.AbsoluteBar.ShouldBe(1);
 	}
 
 	private static Song Busy()

@@ -114,15 +114,16 @@ public class SequencerTests
 	}
 
 	[Test]
-	public void Sections_play_in_order()
+	public void Sections_follow_their_exits()
 	{
-		var song = new Song("order");
+		var song = new Song("exits");
 		var track = song.Track("tone", ChipRig.Tone);
 		var a = song.Section("a", 1);
 		a.Play(track, Line.Quarters("1 - - -"));
 		var b = song.Section("b", 1);
 		b.Play(track, Line.Quarters("8 - - -"));
-		song.Order(a, b);
+		a.Then(b);
+		b.Then(a);
 		using var rig = new MusicRig();
 		rig.Player.Play(song);
 		rig.Step(3 * MusicRig.Bar);
@@ -133,16 +134,18 @@ public class SequencerTests
 	}
 
 	[Test]
-	public void A_conductor_chooses_the_next_section()
+	public void An_exit_on_a_cue_chooses_the_next_section()
 	{
 		var cue = new Cue("energy");
-		var song = new Song("conducted");
+		var song = new Song("cued exits");
 		var track = song.Track("tone", ChipRig.Tone);
 		var a = song.Section("a", 1);
 		a.Play(track, Line.Quarters("1 - - -"));
 		var b = song.Section("b", 1);
 		b.Play(track, Line.Quarters("8 - - -"));
-		song.Conduct(c => c[cue] > 0.5f ? b : a);
+		a.Exit(b, cue.Above(0.5f));
+		b.Exit(b, cue.Above(0.5f));
+		b.Then(a);
 		using var rig = new MusicRig();
 		rig.Player.Play(song);
 		rig.Step(2 * MusicRig.Bar + MusicRig.Bar / 2);

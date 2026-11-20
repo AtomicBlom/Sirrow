@@ -26,14 +26,12 @@ public sealed class MusicPlayer : IDisposable
 	private readonly Dictionary<string, float> _gainDb = [];
 	private readonly Dictionary<(string Section, string Placement), PlacementState> _forced = [];
 	private readonly List<AudioSource> _fading = [];
-	private readonly Conductor _conductor;
 	private readonly double _aheadSeconds;
+	// CueValue as a delegate, made once: a condition asked many times a second takes it rather than a new one each time
+	private readonly Func<CueBase, float> _cueValue;
 	private MusicSource? _source;
 	private AudioSource? _played;   // what the engine plays: the song's source, or an AheadSource wrapping it
 	private SongState? _swapping;   // a swap posted but not yet known taken
-									// The section start (SectionStarts) a conducted song's function was last asked at as it began, and in its last beat
-	private int _askedEarly = -1;
-	private int _askedLate = -1;
 
 	/// <summary>
 	/// A player for <paramref name="audio"/>, its songs on <paramref name="bus"/>. With <paramref name="aheadSeconds"/> above
@@ -49,7 +47,7 @@ public sealed class MusicPlayer : IDisposable
 		_audio = audio;
 		_bus = bus;
 		_aheadSeconds = aheadSeconds;
-		_conductor = new Conductor(CueValue);
+		_cueValue = CueValue;
 	}
 
 	/// <summary>How far ahead of the speaker songs are rendered, in seconds: 0 renders them live, on the audio thread.</summary>
@@ -97,33 +95,38 @@ public sealed class MusicPlayer : IDisposable
 		: -1;
 
 	/// <summary>
-	/// The section the song would play after the one playing, with the cues as they are now: a conducted song's conduct
-	/// function asked without moving the song, else the next in its order. Null when nothing plays, or the conduct function
-	/// throws. For a tool to show; it allocates.
+	/// The section the song would play after the one playing, with the cues as they are now and on the pass playing: where
+	/// the first of its exits that holds goes, else itself. Null when nothing plays. For a tool to show.
 	/// </summary>
-	public Section? NextSection
+	public Section? NextSection => NextExit is var exit && SectionPlaying is { } current
+		? exit >= 0 ? current.Exits[exit].To : current
+		: null;
+
+	/// <summary>
+	/// Which of the playing section's <see cref="Section.Exits"/> would be taken were it ending now, with the cues as they
+	/// are and on the pass playing (each condition as <see cref="Condition.IsMet(Func{CueBase, float}, int)"/> reads it,
+	/// without the sequencer's latching), or -1 for none (it plays again, or nothing plays).
+	/// </summary>
+	public int NextExit
 	{
 		get
 		{
-			if (_source is not { } source || Current is not { } state)
-				return null;
-			var song = state.Song;
-			var current = song.Sections[Math.Min(source.SectionIndex, song.Sections.Length - 1)];
-			if (song.Conducted)
-			{
-				var conductor = new Conductor(CueValue) { Current = current.Source, Repeats = source.Pass };
-				try
-				{
-					return song.Song.Conductor!(conductor);
-				}
-				catch (Exception)
-				{
-					return null;
-				}
-			}
-			return song.Order.Length == 0 ? current.Source : song.Song.Sections[song.Order[(source.OrderPosition + 1) % song.Order.Length]];
+			if (SectionPlaying is not { } current || _source is not { } source)
+				return -1;
+			for (var e = 0; e < current.Exits.Count; e++)
+				if (current.Exits[e].When is not { } when || when.IsMet(_cueValue, source.Pass))
+					return e;
+			return -1;
 		}
 	}
+
+	/// <summary>Which pass of the playing section in a row this is, 1 the first time; 0 with nothing playing.</summary>
+	public int Pass => _source?.Pass ?? 0;
+
+	// The section playing, as its song has it
+	private Section? SectionPlaying => _source is { } source && Current is { } state
+		? state.Song.Sections[Math.Min(source.SectionIndex, state.Song.Sections.Length - 1)].Source
+		: null;
 
 	/// <summary>
 	/// What <paramref name="placement"/> plays over one pass of its part, as the sequencer has it: its notes or hits with
@@ -143,6 +146,73 @@ public sealed class MusicPlayer : IDisposable
 			if (e.Tick < part.LoopTicks)
 				events.Add(new PatternEvent(e.Tick, e.Length, e.Note, e.Piece, e.Velocity));
 		return new PlacementPattern(part.LoopTicks, compiled.TicksPerBar, compiled.Tracks[part.Track].Kit, events);
+	}
+
+	/// <summary>
+	/// What <paramref name="placement"/> plays through its whole section, every pass and its fill, as the sequencer has it,
+	/// in the scale playing (or <paramref name="scale"/>, or its song's, when its song isn't the one playing). For a tool
+	/// drawing a lane; it allocates, so not for every frame.
+	/// </summary>
+	public SectionPattern SectionPatternOf(Placement placement, Scale? scale = null)
+	{
+		ArgumentNullException.ThrowIfNull(placement);
+		var (compiled, section, part) = Compiled(placement, scale);
+		var events = new List<PatternEvent>(part.Events.Length);
+		foreach (var e in part.Events)
+			events.Add(new PatternEvent(e.Tick, e.Length, e.Note, e.Piece, e.Velocity));
+		var fill = placement.Fill is null ? -1 : section.LengthTicks - compiled.TicksPerBar;
+		return new SectionPattern(section.LengthTicks, part.LoopTicks, fill, compiled.TicksPerBar, compiled.Tracks[part.Track].Kit, events);
+	}
+
+	/// <summary>
+	/// Where <paramref name="placement"/>'s part is now: which pass of it, of how many, and the tick within that pass, or
+	/// not playing while its section isn't. A part that doesn't play now (its condition unmet) still has a place in its
+	/// section. Allocates nothing once the song is playing.
+	/// </summary>
+	public PlacementPosition PositionOf(Placement placement)
+	{
+		ArgumentNullException.ThrowIfNull(placement);
+		if (_source is not { } source || Current is not { } state || state.Song.Song != placement.Section.Song
+			|| source.SectionIndex != placement.Section.Index)
+			return default;
+		var compiled = state.Song;
+		var section = compiled.Sections[placement.Section.Index];
+		CompiledPlacement? part = null;
+		foreach (var p in section.Placements)
+			if (p.Source == placement)
+				part = p;
+		if (part is null || part.LoopTicks <= 0)
+			return default;
+		var tick = Math.Clamp(SectionTick, 0, section.LengthTicks - 1);
+		var limit = placement.Fill is null ? section.LengthTicks : section.LengthTicks - compiled.TicksPerBar;
+		var passes = Math.Max(1, (limit + part.LoopTicks - 1) / part.LoopTicks);
+		if (tick >= limit)
+			return new PlacementPosition(true, passes - 1, passes, tick - limit, part.LoopTicks, InFill: placement.Fill is not null);
+		return new PlacementPosition(true, tick / part.LoopTicks, passes, tick % part.LoopTicks, part.LoopTicks, false);
+	}
+
+	/// <summary>
+	/// Which of <paramref name="track"/>'s notes sounded as the last block ended: bit n of the 128 for MIDI note n, or for a
+	/// kit's track its piece n (a hit lit for a moment). For a tool lighting the keys a track plays; it allocates nothing.
+	/// Rendered ahead, up to the lead ahead of what is heard.
+	/// </summary>
+	public UInt128 Sounding(SongTrack track)
+	{
+		var index = CheckTrack(track).Index;
+		if (_source is not { } source || (_swapping is not null && !ReferenceEquals(source.State, _swapping)))
+			return UInt128.Zero;
+		return source.Sounding(index);
+	}
+
+	// The song as compiled for a placement's song, its section and the placement in it
+	private (CompiledSong Song, CompiledSection Section, CompiledPlacement Part) Compiled(Placement placement, Scale? scale)
+	{
+		var song = placement.Section.Song;
+		var compiled = Current is { } playing && playing.Song.Song == song ? playing.Song : CompiledSong.Compile(song, scale ?? song.Scale);
+		var section = compiled.Sections[placement.Section.Index];
+		var part = Array.Find(section.Placements, p => p.Source == placement)
+			?? throw new ArgumentException($"Placement '{placement.Name}' isn't in its song as compiled.", nameof(placement));
+		return (compiled, section, part);
 	}
 
 	/// <summary>How busy its chip was at its last block.</summary>
@@ -185,7 +255,6 @@ public sealed class MusicPlayer : IDisposable
 		_source = new MusicSource(state);
 		_played = _aheadSeconds > 0 ? new AheadSource(_audio, _source, _aheadSeconds) : _source;
 		_swapping = null;
-		_askedEarly = _askedLate = -1;
 		_audio.Play(_played, _bus);
 	}
 
@@ -234,12 +303,7 @@ public sealed class MusicPlayer : IDisposable
 		_swapping = null;
 	}
 
-	/// <summary>
-	/// Once a frame: asks a conducted song's function for its next section as each section starts and again in its last
-	/// beat, and lets go of a song that has faded out. The answer in the last beat is the one that counts; the first stands
-	/// if a long frame skips past the last beat, so the section never repeats only because the game was late.
-	/// </summary>
-	/// <exception cref="InvalidOperationException">The song's conduct function threw (the inner exception); the section loops meanwhile.</exception>
+	/// <summary>Once a frame: lets go of a song that has faded out, and of a swap once it is taken.</summary>
 	public void Update()
 	{
 		for (var i = _fading.Count - 1; i >= 0; i--)
@@ -248,44 +312,8 @@ public sealed class MusicPlayer : IDisposable
 				(_fading[i] as AheadSource)?.Dispose();
 				_fading.RemoveAt(i);
 			}
-		if (_source is not { } source)
-			return;
-		if (_swapping is not null && ReferenceEquals(source.State, _swapping))
+		if (_source is { } source && _swapping is not null && ReferenceEquals(source.State, _swapping))
 			_swapping = null;
-		var song = source.State.Song;
-		if (!song.Conducted || _swapping is not null)
-			return;
-		var starts = source.SectionStarts;
-		if (source.TicksLeft <= song.TicksPerBeat)
-		{
-			if (starts == _askedLate)
-				return;
-			_askedLate = _askedEarly = starts;
-		}
-		else
-		{
-			if (starts == _askedEarly)
-				return;
-			_askedEarly = starts;
-		}
-		var current = song.Sections[Math.Min(source.SectionIndex, song.Sections.Length - 1)];
-		_conductor.Current = current.Source;
-		_conductor.Repeats = source.Pass;
-		Section next;
-		try
-		{
-			next = song.Song.Conductor!(_conductor);
-		}
-		catch (Exception ex)
-		{
-			source.Post(new MusicCommand { Kind = MusicCommandKind.Next, A = current.Source.Index });
-			// Asked no more this section: it would only throw again
-			_askedEarly = _askedLate = starts;
-			throw new InvalidOperationException($"Song '{song.Song.Name}': its conduct function threw, and the section loops: {ex.Message}", ex);
-		}
-		if (next is null || next.Song != song.Song)
-			throw new InvalidOperationException($"Song '{song.Song.Name}': its conduct function gave a section that isn't the song's.");
-		source.Post(new MusicCommand { Kind = MusicCommandKind.Next, A = next.Index });
 	}
 
 	/// <summary>Tells the music a level cue's value. One the song playing doesn't use is remembered for the next.</summary>

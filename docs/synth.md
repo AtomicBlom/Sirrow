@@ -522,7 +522,9 @@ static class Groove
 		var chorus = song.Section("chorus", 4, "VI VII | i | VI VII | i");
 		chorus.Play(drums, Beat.Eighths((Kit.Kick, "x.x. x.x."), (Kit.Snare, "..X. ..X."), (Kit.Crash, "x... ....")));
 		chorus.Play(low, Line.Eighths("1 - 1 - 1 1 5, 1").OverChords());
-		song.Order(verse, verse, chorus);
+		verse.Exit(verse, Pass.Below(2));
+		verse.Then(chorus);
+		chorus.Then(verse);
 		return song;
 	}
 }
@@ -604,11 +606,13 @@ macros from `from` at the section's first bar to `to` at its end, over whatever 
 It is how a build opens or thins a filter towards a drop. In every other section the macro is the track's own again (0
 if the track never set it).
 
-`Order(a, a, b)` plays sections in turn, then from the first again; `Conduct(c => …)` chooses the next one in code, from
-the `Conductor`'s current section, its repeats and the cues. It is asked as each section starts and again a beat before
-it ends, and the later answer counts; the first stands if a long frame skips the last beat, so a hitch never repeats a
-section. Keep it a plain function of what it is given: it is called twice a section. One that throws is asked no more
-that section, which loops. With neither, the first section loops. A `Jump` lets go of what was sounding.
+**Each section says where the song goes as it ends**, by its exits: `verse.Exit(chorus, Energy.Above(0.7f))` goes to the
+chorus when the energy is up, `verse.Exit(verse, Pass.Below(2))` plays the verse once more, and `verse.Then(chorus)`, the
+last, goes there otherwise. They are tried in order as the section ends, by the sequencer itself on the audio thread,
+their conditions latched as a part's are; a section with none plays again. `Pass` is which pass of the section in a row
+this is, 1 the first time, compared exactly (`Pass.Above`, `Below`, `Is`), so its `>` and `<` are strict where a cue's
+hold at the level; a count below 1 is refused. A part can use it too, a fill on the fourth time round. `MusicPlayer.NextSection` and `NextExit` say where the section would go were it ending now, for a tool to
+show. The song starts at its first section. A `Jump` lets go of what was sounding.
 
 ### Cues and conditions
 
@@ -672,17 +676,30 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
 - **The transport.** The song chosen, play and stop, the position (section, bar, beat), the tempo and the scale, the
   loop on the section playing, and the host's own controls. At its right, the last build's status as a pill: red when
   the song didn't build, and a click opens its error over the view (the last song that built plays on).
-- **The library** (the rail's first button): the catalog's songs, patches and kits in one list, filtered by the words
-  typed. It opens over the view and folds away once something is chosen; **Pin** keeps it open as a column.
-- **Arrange.** The sections as a timeline, each as wide as its bars, lit while it plays with how far through it is; a
-  click jumps there at the next bar, marked until then; what plays next, and why (the conductor asked with the cues as
-  they are, `MusicPlayer.NextSection`). Under it the tracks as lanes, a column per section: each track's mute, solo, gain
-  and meter, and its parts as clips in the sections they play in, drawn small, whether each plays, its condition green
-  while it holds (`Condition.IsMet`), and auto, on and off to force it. The part chosen is drawn below, as notes over
-  the bar. Beside it **the cues**: a slider for a `Cue` with the levels parts wait on marked over it and what waits on
-  each, a button per value for a `Cue<T>`; one the song doesn't read is dimmed.
+- **The library** (the rail's first button): the catalog's songs, patches and kits as lists under their kinds, each row
+  its kind's icon, filtered by the words typed; **+** on Songs and Patches makes a new file beside the project's others
+  (a patch blank or a copy of the one open), listed once the project builds again (the generator lists every file's
+  patch and song, `Patches.Files` and `SongFiles.All`). It opens over the view and folds away once something is chosen;
+  **Pin** keeps it open as a column.
+- **Arrange**, a board. Across the top each section's head: its name (chosen, it is shown in the inspector), a button
+  that plays it from the next bar, a ruler of its bars with each bar's chords (a click opens a picker: degree, flat or
+  sharp, kind, the bar split into two or four, a bar added or taken out of the progression), the bars that repeat the
+  progression dimmed, the bar playing lit and a playhead across the section, and its exits with where it goes next
+  marked (`MusicPlayer.NextExit`). Down the left each track's head: a stripe in its hue, mute, solo, gain and meter, and
+  a menu (right-click) to rename it, give it another instrument or take it out; **+ Track** adds one. Both heads stay
+  put over lanes that scroll both ways. Where a lane crosses a section, each part the track plays there: its title (a
+  click opens it in the roll and the inspector), its condition on a chip (a click edits it), auto, on and off, and under
+  them every pass of its part across the section in the track's hue, the pass playing lit, those to come dimmed, the
+  fill marked, all faded while the condition doesn't hold (`MusicPlayer.SectionPatternOf`, `PositionOf`); an empty cell
+  adds a part. **The inspector** beside the board changes the section or part chosen: a section's name, bars, chords and
+  exits (each a condition and where it goes, reordered, the last "otherwise"), a part's condition, the cue its level
+  follows, whether it waits for its phrase, its fill. A condition is edited as rows (a cue or the pass, a comparison, a
+  value) joined by all or any, or as text where rows can't hold it. Beside them **the cues**: a slider for a `Cue` with
+  the levels parts and exits wait on marked over it and what waits on each, a button per value for a `Cue<T>`; one the
+  song doesn't read is disabled. The part chosen is in the panel under the board, past a splitter.
 - **The roll.** When the song has a file (section 11) and the part chosen is data there, it is edited below in place of
-  its drawing. A line on rows by degree: a click adds a note, a drag from a note's last step lengthens it, a drag
+  its drawing. A line on rows by degree, three octaves of them to scroll through (the wheel, Shift for across), the part's
+  notes brought into view as it opens; a beat on a row for every piece of its kit: a click adds a note, a drag from a note's last step lengthens it, a drag
   elsewhere (or off its row) moves it, a right-click or a second click deletes it. A beat's rows: a click cycles a step
   through `x`, `X`, `o` and off. A strum: `D`, `U`, `d`, `u`, `x`, `_`. The roll's tools are glyphs over it, a hint under
   them saying what a click and a drag do for the part: a line's flat, natural, sharp and slide, then accent and delete for
@@ -715,7 +732,9 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
 - **Files** (the rail's last button): every song's and patch's file and the C# that is theirs; the one chosen shown as it
   is, copied whole or a piece at a time: a C# file's class or any member (its indent taken off), a song's track, section
   or part, a patch's operator, each written alone as its file writes it.
-- **The keyboard**, docked: two octaves, what it plays, how hard, its octave, the chip's load.
+- **The keyboard**, docked: three octaves round its octave (moved by Z and X or its buttons), what it plays, how hard, the
+  chip's load. Its keys light in the track's hue as the track it plays sounds them in the song (`MusicPlayer.Sounding`),
+  keys outside the song's scale are faded, and each C is named.
 - **The command palette** (Ctrl K): the catalog, the song's sections and the commands, found by every word typed.
 
 A host lays the window out at `WorkbenchView.FitScale(surface, displayScale)`: the display's scale, but never so large
@@ -898,10 +917,12 @@ A kind is `sine`, `saw`, `pulse`, `noise`, `level`, `string`, `tube` or `modes`;
 envelope is `"gate"`, `"decay s"` or `"adsr a d s r"`; a mode `"at ratio seconds [level]"` or `"fixed hz seconds
 [level]"`; a macro its number. `PatchSpec.About` carries `"about"`.
 
-**`loom-song/1`** (`SongFile`): a song, its patches, kits, cues and macros named, written a part to a line:
+**`loom-song/2`** (`SongFile`): a song, its patches, kits, cues and macros named, written a part to a line:
 `SongFile.Write(song, names)` from a built song (`SongNames` says what the catalog calls each patch, kit and macro, and
 gives a group's effects, which a built song can't), `ToJson` to add what a built song can't say before writing (its
-conductor, its hooks), and `Load(json, bindings)` to build one at run time (`SongBindings` binds the names). Its pieces:
+hooks), and `Load(json, bindings)` to build one at run time (`SongBindings` binds the names). A `loom-song/1` file,
+whose song-wide `order` or `conduct` chose the next section, is refused, saying how to move it to each section's exits.
+Its pieces:
 
 | Key | What it says |
 |---|---|
@@ -909,13 +930,12 @@ conductor, its hooks), and `Load(json, bindings)` to build one at run time (`Son
 | `effects` | The space, echo and master sends' effects, if not the defaults |
 | `groups` | `{ "name", "effects": [{ "fx": "compressor", "thresholdDb": -18, "ratio": 3 }] }`: an effect is one of `Fx`'s factories, its arguments by their parameter names |
 | `tracks` | `{ "name", "patch" or "kit", "group", "octave", "level", "pan", "humanise": { "ms", "velocity" }, "swing": { "ratio", "step" }, "macros": [{ "macro", "follow", "from", "to" } or { "macro", "set" }] }` |
-| `sections` | `{ "name", "about", "bars", "chords", "parts": [...], "sweeps": [{ "track", "macro", "from", "to" }] }` |
+| `sections` | `{ "name", "about", "bars", "chords", "parts": [...], "sweeps": [{ "track", "macro", "from", "to" }], "exits": [{ "when": "intensity > 0.7", "then": "open" }, { "then": "cruise" }] }`: the exits tried in order as it ends, the last, with no `when`, always |
 | a part | `{ "track", "name", ` a line `"line": "eighths", "notes", "overChords", "octave"`, a beat `"beat", "rows": { "kick": "x..." }`, a strum `"strum", "notes", "voicing", "spread"`, or code `"part": { "code": "Name" }`; then `"when"`, `"level"` (a cue), `"onPhrase"`, `"endWith"` (a part) `}`, or a whole placement as code `{ "track", "code": "Name" }` |
-| `order` or `conduct` | The sections in turn, or rules asked near each section's end: `[{ "when": "intensity > 0.7", "then": "open" }, { "then": "cruise" }]` |
 | `hooks` | `["OnBuilt"]`: code of the game's own, run with the song and every section once the rest is built |
 
-A condition (`ConditionText`) is `"intensity > 0.6"`, `"intensity < 0.2"` or `"biome is Forest"`, joined by `and`, `or`,
-`not` and brackets.
+A condition (`ConditionText`) is `"intensity > 0.6"`, `"intensity < 0.2"`, `"biome is Forest"` or the section's pass,
+`"pass < 2"`, joined by `and`, `or`, `not` and brackets.
 
 **The generator** (`Loom.Audio.Music.Generator`) reads a project's `AdditionalFiles` ending `.patch.json` and
 `.song.json`. Every patch file becomes a property of one `static partial class Patches` in the project's root namespace,

@@ -6,7 +6,7 @@ public sealed record IsCondition(CueBase Cue, float Value) : Condition
 	internal override IEnumerable<CueBase> Cues => [Cue];
 
 	/// <inheritdoc/>
-	public override bool IsMet(Func<CueBase, float> value) => value(Cue) == Value;
+	public override bool IsMet(Func<CueBase, float> value, int pass) => value(Cue) == Value;
 
 	internal override string Describe()
 	{

@@ -9,4 +9,7 @@ internal enum ConditionOpKind : byte
 	And,
 	Or,
 	Not,
+	PassAbove,
+	PassBelow,
+	PassIs,
 }

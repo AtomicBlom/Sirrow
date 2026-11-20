@@ -76,7 +76,7 @@ public class MusicGeneratorTests
 
 	private const string Song = """
 		{
-		  "format": "loom-song/1",
+		  "format": "loom-song/2",
 		  "name": "tune",
 		  "about": "A song for the test",
 		  "tempo": 118,
@@ -93,16 +93,17 @@ public class MusicGeneratorTests
 		        { "track": "drums", "beat": "eighths", "rows": { "kick": "x... x...", "snare": "..x. ..x." }, "endWith": { "beat": "sixteenths", "rows": { "snare": "x.x. x.x. xxxx XXXX" } } },
 		        { "track": "lead", "name": "riff", "part": { "code": "Riff" }, "when": "intensity > 0.4 and not mood is Dark", "onPhrase": true }
 		      ],
-		      "sweeps": [{ "track": "lead", "macro": 0, "from": 0, "to": 1 }]
+		      "sweeps": [{ "track": "lead", "macro": 0, "from": 0, "to": 1 }],
+		      "exits": [{ "when": "intensity > 0.7 and mood is Calm", "then": "chorus" }, { "then": "verse" }]
 		    },
 		    {
 		      "name": "chorus", "bars": 2, "chords": "III | VII",
 		      "parts": [
 		        { "track": "lead", "strum": "eighths", "notes": "D.DU .UDU", "voicing": "triad", "when": "(intensity < 0.2 or mood is Calm)" }
-		      ]
+		      ],
+		      "exits": [{ "when": "pass < 2", "then": "chorus" }, { "then": "verse" }]
 		    }
 		  ],
-		  "conduct": [{ "when": "intensity > 0.7 and mood is Calm", "then": "chorus" }, { "then": "verse" }],
 		  "hooks": ["OnBuilt"]
 		}
 		""";
@@ -160,7 +161,10 @@ public class MusicGeneratorTests
 		var patchFile = PatchFile.Write(PluckSpec(), ["pick", "saw", "breath"]);
 		var (output, diagnostics, run) = Generate(("Patches/pluck.patch.json", patchFile), ("Songs/tune.song.json", Song));
 		diagnostics.ShouldBeEmpty();
-		run.Results.Single().GeneratedSources.Select(s => s.HintName).ShouldBe(["Patches.g.cs", "Tune.g.cs"], ignoreOrder: true);
+		run.Results.Single().GeneratedSources.Select(s => s.HintName).ShouldBe(["Patches.g.cs", "Tune.g.cs", "SongFiles.g.cs"], ignoreOrder: true);
+		// A file's patch and song are listed as they are added, for a catalog to take without code of its own
+		run.Results.Single().GeneratedSources.Single(s => s.HintName == "Patches.g.cs").SourceText.ToString().ShouldContain("(\"pluck\", () => Pluck),");
+		run.Results.Single().GeneratedSources.Single(s => s.HintName == "SongFiles.g.cs").SourceText.ToString().ShouldContain("(\"tune\", global::Tunes.Songs.Tune.Build),");
 		var patchesCode = run.Results.Single().GeneratedSources.Single(s => s.HintName == "Patches.g.cs").SourceText.ToString();
 		patchesCode.ShouldContain("public static Patch Pluck => Patch.Build(\"pluck\", p =>");
 		patchesCode.ShouldContain("var pick = p.Sine(3f, Env.Decay(0.05f), 0.7f, velocity: 0.5f);");
@@ -168,7 +172,9 @@ public class MusicGeneratorTests
 		patchesCode.ShouldContain("p.Macro(Macros.Bright, MacroTarget.FilterCutoff, 0.5f, 2f);");
 		var songCode = run.Results.Single().GeneratedSources.Single(s => s.HintName == "Tune.g.cs").SourceText.ToString();
 		songCode.ShouldContain("namespace Tunes.Songs;");
-		songCode.ShouldContain("song.Conduct(now => now[Cues.Intensity] > 0.7f && now.Get(Cues.Mood) == global::Tunes.Mood.Calm ? chorus : verse);");
+		songCode.ShouldContain("verse.Exit(chorus, Cues.Intensity.Above(0.7f) & Cues.Mood.Is(global::Tunes.Mood.Calm));");
+		songCode.ShouldContain("verse.Then(verse);");
+		songCode.ShouldContain("chorus.Exit(chorus, global::Loom.Audio.Synth.Music.Pass.Below(2));");
 		songCode.ShouldContain(".When(Cues.Intensity.Above(0.4f) & !Cues.Mood.Is(global::Tunes.Mood.Dark))");
 		songCode.ShouldContain("Fx.Distortion(driveDb: 18f, toneHz: 3500f, cabinet: global::Loom.Audio.Synth.Effects.Cabinet.FourByTwelve)");
 
@@ -205,8 +211,12 @@ public class MusicGeneratorTests
 		error.GetMessage().ShouldContain("track 'lead' plays patch 'nope'");
 		error.Location.GetLineSpan().StartLinePosition.Line.ShouldBe(broken.Split('\n').ToList().FindIndex(l => l.Contains("\"nope\"", StringComparison.Ordinal)));
 
-		var unclosed = Generate(("Songs/tune.song.json", "{ \"format\": \"loom-song/1\", \"name\": \"x\"")).Diagnostics.ShouldHaveSingleItem();
+		var unclosed = Generate(("Songs/tune.song.json", "{ \"format\": \"loom-song/2\", \"name\": \"x\"")).Diagnostics.ShouldHaveSingleItem();
 		unclosed.GetMessage().ShouldContain("tune.song.json");
+
+		// A loom-song/1 file is refused, saying where its order or conduct goes
+		var old = Generate(("Songs/tune.song.json", Song.Replace("loom-song/2", "loom-song/1", StringComparison.Ordinal))).Diagnostics.ShouldHaveSingleItem();
+		old.GetMessage().ShouldContain("\"exits\"");
 	}
 
 	// The sample's folder, from this file's

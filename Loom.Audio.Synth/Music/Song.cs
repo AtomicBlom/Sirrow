@@ -4,8 +4,8 @@ namespace Loom.Audio.Synth.Music;
 
 /// <summary>
 /// A piece of music as code: its tempo, meter and scale, its tracks (patches and kits, in groups of effects), its
-/// sections and the parts played in each, and the order they come in. Build one in a method that makes it anew each
-/// time (so hot reload rebuilds it), then hand it to a <see cref="MusicPlayer"/>.
+/// sections and the parts played in each, and where each section goes as it ends (<see cref="Section.Exits"/>). Build one
+/// in a method that makes it anew each time (so hot reload rebuilds it), then hand it to a <see cref="MusicPlayer"/>.
 /// <code>
 /// var song = new Song("groove") { Tempo = 128, Scale = Scale.Minor(Note.E) };
 /// var drums = song.Track("drums", kit);
@@ -13,7 +13,11 @@ namespace Loom.Audio.Synth.Music;
 /// var verse = song.Section("verse", 4, "i | VI | III | VII");
 /// verse.Play(drums, Beat.Eighths((Kit.Kick, "x... x..."), (Kit.Snare, "..x. ..x.")));
 /// verse.Play(bass, Line.Eighths("1 1 . 1 5, 1 . 1").OverChords());
-/// song.Order(verse);
+/// var chorus = song.Section("chorus", 4, "VI | VII | i | i");
+/// chorus.Play(drums, Beat.Eighths((Kit.Kick, "x.x. x.x."), (Kit.Snare, "..x. ..x.")));
+/// verse.Exit(verse, Pass.Below(2));
+/// verse.Then(chorus);
+/// chorus.Then(verse);
 /// </code>
 /// </summary>
 /// <param name="name">Its name.</param>
@@ -22,7 +26,6 @@ public sealed class Song(string name)
 	private readonly List<SongGroup> _groups = [];
 	private readonly List<SongTrack> _tracks = [];
 	private readonly List<Section> _sections = [];
-	private Section[] _order = [];
 
 	// As many as a chip has instruments
 	internal const int MaxTracks = 64;
@@ -133,7 +136,7 @@ public sealed class Song(string name)
 	/// <summary>Its groups, in the order made.</summary>
 	public IReadOnlyList<SongGroup> Groups => _groups;
 
-	/// <summary>Every cue a condition, a level or a macro names, each once, in the order first named.</summary>
+	/// <summary>Every cue a condition (a part's or an exit's), a level or a macro names, each once, in the order first named.</summary>
 	public IReadOnlyList<CueBase> Cues
 	{
 		get
@@ -157,12 +160,15 @@ public sealed class Song(string name)
 					if (placement.LevelCue is { } level)
 						Add(level);
 				}
+			foreach (var section in _sections)
+				foreach (var exit in section.Exits)
+					if (exit.When is { } when)
+						foreach (var cue in when.Cues)
+							Add(cue);
 			return cues;
 		}
 	}
 
-	internal IReadOnlyList<Section> OrderList => _order;
-	internal Func<Conductor, Section>? Conductor { get; private set; }
 
 	/// <summary>A group of tracks sharing <paramref name="effects"/> (<see cref="Effects.Fx"/> makes them).</summary>
 	public SongGroup Group(string name, params Func<AudioEffect>[] effects)
@@ -220,29 +226,6 @@ public sealed class Song(string name)
 		var section = new Section(this, name, _sections.Count, bars, new SectionChords(chords));
 		_sections.Add(section);
 		return section;
-	}
-
-	/// <summary>The sections played in turn, then from the first again.</summary>
-	public void Order(params Section[] sections)
-	{
-		CheckOpen();
-
-		ArgumentNullException.ThrowIfNull(sections);
-		foreach (var section in sections)
-			if (section.Song != this)
-				throw new ArgumentException($"Section '{section.Name}' belongs to another song.", nameof(sections));
-		_order = [.. sections];
-		Conductor = null;
-	}
-
-	/// <summary>The next section chosen in code, near the end of each section, from the cues and what is playing.</summary>
-	public void Conduct(Func<Conductor, Section> next)
-	{
-		CheckOpen();
-
-		ArgumentNullException.ThrowIfNull(next);
-		Conductor = next;
-		_order = [];
 	}
 
 	/// <inheritdoc/>

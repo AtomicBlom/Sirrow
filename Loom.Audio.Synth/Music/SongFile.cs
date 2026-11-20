@@ -7,12 +7,12 @@ using Loom.Audio.Synth.Chip;
 namespace Loom.Audio.Synth.Music;
 
 /// <summary>
-/// A song as a file, <c>loom-song/1</c>: everything a <see cref="Song"/> is, its patches, kits, cues and macros named,
+/// A song as a file, <c>loom-song/2</c>: everything a <see cref="Song"/> is, its patches, kits, cues and macros named,
 /// written a part to a line. Loom's music generator turns the same file into the C# a person would have written; at run
 /// time <see cref="Load"/> builds it with the names bound by a <see cref="SongBindings"/>.
 /// <code>
 /// {
-///   "format": "loom-song/1",
+///   "format": "loom-song/2",
 ///   "name": "open-road",
 ///   "tempo": 108,
 ///   "scale": "G major",
@@ -27,23 +27,33 @@ namespace Loom.Audio.Synth.Music;
 ///       "parts": [
 ///         { "track": "keys", "line": "eighths", "notes": "5 - 3 5 6 - 5 3", "onPhrase": true, "name": "the tune" },
 ///         { "track": "drums", "beat": "eighths", "rows": { "kick": "x... x.x.", "snare": "..x. ..xo" }, "when": "intensity > 0.25" }
-///       ]
+///       ],
+///       "exits": [{ "when": "intensity > 0.7", "then": "open" }, { "then": "cruise" }]
 ///     }
-///   ],
-///   "conduct": [{ "when": "intensity > 0.7", "then": "open" }, { "then": "cruise" }]
+///   ]
 /// }
 /// </code>
 /// A track's defaults (octave 4, level 0, no pan, no looseness, straight time) and a song's (4/4, 32 voices) are left
 /// out. A part is a line (<c>"line": "eighths", "notes"</c>, <c>"overChords"</c>, <c>"octave"</c>), a beat
 /// (<c>"beat"</c>, <c>"rows"</c>), a strum (<c>"strum"</c>, <c>"notes"</c>, <c>"voicing"</c>, <c>"spread"</c>) or code
 /// (<c>"part": { "code": "Name" }</c>); a whole placement can be code (<c>"code": "Name"</c>). Conditions are
-/// <see cref="ConditionText"/>'s. The sections play in <c>"order"</c>, or as <c>"conduct"</c>'s rules choose, the first
-/// whose condition holds; <c>"hooks": ["OnBuilt"]</c> hands the built song to code of the game's own.
+/// <see cref="ConditionText"/>'s. As a section ends the song goes where the first of its <c>"exits"</c> whose condition
+/// holds says, the last of them with no <c>"when"</c> where it has one, or plays it again where none holds
+/// (<see cref="Section.Exits"/>); <c>"hooks": ["OnBuilt"]</c> hands the built song to code of the game's own. A
+/// <c>loom-song/1</c> file, whose song-wide <c>"order"</c> or <c>"conduct"</c> chose the next section, is refused, naming
+/// how to move it.
 /// </summary>
 public static class SongFile
 {
 	/// <summary>The format this writes, and the only one it reads.</summary>
-	public const string Format = "loom-song/1";
+	public const string Format = "loom-song/2";
+
+	// What a loom-song/1 file is told to do to be read
+	private const string FromVersion1 = "loom-song/1 chose the next section for the whole song (\"order\", \"conduct\"); loom-song/2 "
+		+ "gives each section its \"exits\": [{ \"when\": \"…\", \"then\": \"section\" }, …, { \"then\": \"section\" }], tried in "
+		+ "order as it ends. An order A, B, C is A's exits [{ \"then\": \"B\" }] and so on round; a section played twice in a "
+		+ "row is [{ \"when\": \"pass < 2\", \"then\": itself }, …]; conduct's rules are each section's exits. Then set "
+		+ "\"format\": \"loom-song/2\"";
 
 	private static readonly (string Name, Func<Note, Scale> Make)[] Scales =
 	[
@@ -65,10 +75,7 @@ public static class SongFile
 		return JsonText.Write(file);
 	}
 
-	/// <summary>
-	/// The file for <paramref name="song"/> as JSON, to add to before it is written: a conductor (<c>"conduct"</c>), which
-	/// a built song can't say, or hooks.
-	/// </summary>
+	/// <summary>The file for <paramref name="song"/> as JSON, to add to before it is written: hooks.</summary>
 	/// <exception cref="NotSupportedException">The song holds something a file can't say.</exception>
 	public static JsonObject ToJson(Song song, SongNames? names = null)
 	{
@@ -89,8 +96,6 @@ public static class SongFile
 			file["groups"] = new JsonArray([.. song.Groups.Select(g => new JsonObject { ["name"] = g.Name, ["effects"] = names.GroupEffects(g) ?? [] })]);
 		file["tracks"] = new JsonArray([.. song.Tracks.Select(t => TrackJson(t, names))]);
 		file["sections"] = new JsonArray([.. song.Sections.Select(s => SectionJson(s, names))]);
-		if (song.OrderList.Count > 0)
-			file["order"] = new JsonArray([.. song.OrderList.Select(s => (JsonNode)s.Name)]);
 		return file;
 	}
 
@@ -154,6 +159,19 @@ public static class SongFile
 				["from"] = s.From,
 				["to"] = s.To,
 			})]);
+		if (section.Exits.Count > 0)
+			json["exits"] = new JsonArray([.. section.Exits.Select(ExitJson)]);
+		return json;
+	}
+
+	/// <summary>A section's way out as a file writes it: <c>{ "when": "intensity &gt; 0.7", "then": "open" }</c>.</summary>
+	public static JsonObject ExitJson(SectionExit exit)
+	{
+		ArgumentNullException.ThrowIfNull(exit);
+		var json = new JsonObject();
+		if (exit.When is { } when)
+			json["when"] = ConditionText.Write(when);
+		json["then"] = exit.To.Name;
 		return json;
 	}
 
@@ -231,7 +249,7 @@ public static class SongFile
 	};
 
 	/// <summary>The song a file holds, built with its names bound by <paramref name="bindings"/>.</summary>
-	/// <exception cref="FormatException">It isn't a <c>loom-song/1</c> file, or names something the bindings don't have.</exception>
+	/// <exception cref="FormatException">It isn't a <c>loom-song/2</c> file, or names something the bindings don't have.</exception>
 	/// <exception cref="NotationException">A part's notation has a mistake.</exception>
 	public static Song Load(string json, SongBindings bindings)
 	{
@@ -240,8 +258,12 @@ public static class SongFile
 		using var document = PatchFile.Parse(json);
 		var root = document.RootElement;
 		var format = PatchFile.String(root, "format");
+		if (format == "loom-song/1")
+			throw new FormatException($"A song file says \"format\": \"loom-song/1\"; this reads \"{Format}\". {FromVersion1}.");
 		if (format != Format)
 			throw new FormatException($"A song file says \"format\": \"{format}\"; this reads \"{Format}\".");
+		if (root.TryGetProperty("order", out _) || root.TryGetProperty("conduct", out _))
+			throw new FormatException($"A song file has a song-wide \"order\" or \"conduct\". {FromVersion1}.");
 		var name = PatchFile.String(root, "name") ?? throw new FormatException("A song file has a \"name\".");
 		FormatException Error(string why) => new($"Song '{name}': {why}.");
 
@@ -404,23 +426,18 @@ public static class SongFile
 		Section SectionNamed(string? sectionName) =>
 			sectionName is not null && byName.TryGetValue(sectionName, out var section) ? section : throw Error($"no section is named '{sectionName}'");
 
-		if (root.TryGetProperty("order", out var order))
-			song.Order([.. order.EnumerateArray().Select(s => SectionNamed(s.GetString()))]);
-		if (root.TryGetProperty("conduct", out var conduct))
+		var sectionAt = 0;
+		foreach (var element in PatchFile.Array(root, "sections"))
 		{
-			var rules = conduct.EnumerateArray()
-				.Select(rule => (When: PatchFile.String(rule, "when") is { } when ? ConditionText.Parse(when, bindings.Cue) : null,
-					Then: SectionNamed(PatchFile.String(rule, "then"))))
-				.ToArray();
-			if (rules.Length == 0 || rules[^1].When is not null)
-				throw Error("the last of \"conduct\"'s rules has a \"when\": the last has none, so a section is always chosen");
-			song.Conduct(now =>
+			var section = sections[sectionAt++];
+			foreach (var exit in PatchFile.Array(element, "exits"))
 			{
-				foreach (var (when, then) in rules)
-					if (when is null || when.IsMet(now.Value))
-						return then;
-				return rules[^1].Then;
-			});
+				var to = SectionNamed(PatchFile.String(exit, "then") ?? throw Error($"an exit of '{section.Name}' has no \"then\""));
+				if (PatchFile.String(exit, "when") is { } when)
+					section.Exit(to, ConditionText.Parse(when, bindings.Cue));
+				else
+					section.Then(to);
+			}
 		}
 		foreach (var hook in PatchFile.Array(root, "hooks"))
 		{

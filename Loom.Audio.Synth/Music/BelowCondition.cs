@@ -6,7 +6,7 @@ public sealed record BelowCondition(Cue Cue, float Level) : Condition
 	internal override IEnumerable<CueBase> Cues => [Cue];
 
 	/// <inheritdoc/>
-	public override bool IsMet(Func<CueBase, float> value) => value(Cue) < Level;
+	public override bool IsMet(Func<CueBase, float> value, int pass) => value(Cue) <= Level;
 
 	internal override string Describe() => $"{Cue.Name} below {Number(Level)}";
 }
