@@ -9,4 +9,9 @@ public enum Voicing
 	Power,
 	/// <summary>The power chord with the third above its octave.</summary>
 	Triad,
+	/// <summary>
+	/// The chord's notes stacked up from its root within an octave, the root in the track's octave: as a hand plays it on
+	/// keys, not across strings. With no spread, a stroke sounds as a block chord.
+	/// </summary>
+	Close,
 }

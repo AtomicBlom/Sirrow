@@ -1,11 +1,12 @@
 namespace Loom.Audio.Synth.Music;
 
 /// <summary>
-/// A melody or a bass line, by degree of the scale, a step a token:
+/// A melody, a bass line or chords, by degree of the scale, a step a token:
 /// <code>Line.Eighths("1 3 5 - 4 3 2 . | 1' - 7 5 ^6 5 3~ 2")</code>
 /// <c>1</c> to <c>9</c> are degrees (8 the octave above 1); <c>'</c> or <c>,</c> after one moves it an octave up or down
 /// each; <c>b</c> or <c>#</c> before one a semitone down or up each; <c>^</c> first accents it; <c>~</c> last slides it
-/// into the next; <c>-</c> holds the note before a step more; <c>.</c> rests; <c>|</c> ends a bar.
+/// into the next; notes joined by <c>/</c> (<c>1/3/5</c>) start together and share their length, a chord; <c>-</c> holds
+/// the note (or chord) before a step more; <c>.</c> rests; <c>|</c> ends a bar.
 /// </summary>
 public sealed class Line : Part
 {
@@ -53,7 +54,9 @@ public sealed class Line : Part
 		var tokens = Notation.Tokens(_text);
 		var notes = new List<RawNote>();
 		var hasBars = tokens.Exists(t => t.Token == "|");
-		int bar = 1, inBar = 0, steps = 0, sounding = -1;
+		int bar = 1, inBar = 0, steps = 0;
+		// The notes the last step started, which a hold lengthens together: one, or a stack
+		var sounding = new List<int>();
 		var lastColumn = 1;
 		foreach (var (token, column) in tokens)
 		{
@@ -77,16 +80,21 @@ public sealed class Line : Part
 			switch (token)
 			{
 				case "-":
-					if (sounding < 0)
+					if (sounding.Count == 0)
 						throw new NotationException($"Line \"{_text}\": a hold with no note sounding (column {column})", _text, bar, column);
-					notes[sounding] = notes[sounding] with { Length = notes[sounding].Length + _step };
+					foreach (var at in sounding)
+						notes[at] = notes[at] with { Length = notes[at].Length + _step };
 					continue;
 				case ".":
-					sounding = -1;
+					sounding.Clear();
 					continue;
 			}
-			notes.Add(ParseNote(token, tick, column, bar));
-			sounding = notes.Count - 1;
+			sounding.Clear();
+			foreach (var note in token.Split('/'))
+			{
+				notes.Add(ParseNote(note.Length == 0 ? token : note, tick, column, bar));
+				sounding.Add(notes.Count - 1);
+			}
 		}
 		if (inBar != 0 && inBar != perBar)
 			throw Notation.BarLength("Line", _text, meter, _step, bar, inBar, lastColumn);
