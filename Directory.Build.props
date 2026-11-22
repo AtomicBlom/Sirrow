@@ -2,44 +2,18 @@
 
   <Import Project="$(MSBuildThisFileDirectory)Version.props" />
 
-  <!--
-    Loom repo-wide build configuration (Milestone 8). This is the ONLY auto-applied MSBuild file
-    (MSBuild imports the nearest Directory.Build.props walking up from each project).
-
-    It does two things and nothing else:
-      1. Sets the engine feature-flag defaults (Use*).
-      2. Translates those flags into compile constants (DefineConstants).
-
-    Crucially it does NOT inject project references or shader-compile targets — those live in the Loom
-    SDK files under build/Loom.Sdk/ and are imported *explicitly* by the projects that need them. Keeping
-    the constant translation here (auto-applied to every project) is deliberate: the flags gate code inside
-    the engine assembly (Loom.Backend.Vulkan), so the constant must be present when the engine itself compiles.
-    This is the engine-as-source-in-the-game-repo model — flipping a flag here recompiles the engine.
-  -->
-
-  <!--
-    Warnings are errors across the Loom repo's own projects — the engine, samples, and tests build
-    warning-clean, so CI enforces it. Scoped naturally: external/ (vendored VMASharp + the SUIsei submodule)
-    and Loom.Web (the isolated browser MVP) each have their own Directory.Build.props that stop MSBuild's
-    upward walk, so this never reaches vendored or web-MVP code.
-
-    NoWarn covers the residual trim/AOT (ILxxxx) warnings a PublishAot surfaces from third-party Silk.NET —
-    its single-file Assembly.Location/CodeBase/DependencyContext use (IL3000/IL3002) and the per-assembly trim
-    rollup (IL2104). They aren't ours to fix, and an AOT publish must not fail on them under warnings-as-errors.
-    Our own trim/AOT issues still surface as detailed ILxxxx warnings (not these rollup/single-file codes) and
-    remain errors.
-  -->
+  <!-- Warnings are errors across the repository's projects: the audio, its outputs, samples and tests build warning-clean,
+       and CI holds them to it. -->
   <PropertyGroup Label="Warnings as errors">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <NoWarn>$(NoWarn);IL2104;IL3000;IL3002</NoWarn>
   </PropertyGroup>
 
-  <PropertyGroup Label="NuGet package metadata (applies to all packable projects in the Loom repo)">
+  <PropertyGroup Label="NuGet package metadata (every packable project here)">
     <Version>$(LoomVersion)</Version>
     <Authors>AtomicBlom</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/AtomicBlom/Loom</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/AtomicBlom/Loom</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/AtomicBlom/Sirrow</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/AtomicBlom/Sirrow</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <IncludeSymbols>true</IncludeSymbols>
@@ -53,53 +27,10 @@
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
   </ItemGroup>
 
-  <!-- Include each project's own README.md in its package. PackageReadmeFile alone does NOT auto-include the
-       file — the SDK still requires an explicit Pack=true item, confirmed by a dry-run publish failing NU5039
-       ("readme file does not exist") on every packed project without this. Submodule projects (external/SUIsei)
-       that reach this file but have their readme elsewhere include it explicitly in their own csproj and will
-       not match this condition (no README.md beside SUIsei.csproj). -->
+  <!-- Each project's own README.md in its package. PackageReadmeFile alone does not include the file: the SDK wants an
+       explicit Pack=true item, or packing fails NU5039 ("readme file does not exist"). -->
   <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)/README.md')">
     <None Include="$(MSBuildProjectDirectory)/README.md" Pack="true" PackagePath="README.md" />
   </ItemGroup>
-
-
-  <PropertyGroup Label="Backend selection (read by the app-facing Loom SDK: build/Loom.Sdk/Sdk/Sdk.targets)">
-    <UseVulkan Condition="'$(UseVulkan)' == ''">true</UseVulkan>
-    <UseDirectX12   Condition="'$(UseDirectX12)'   == ''">true</UseDirectX12>
-    <!-- The WebGPU backend is browser-only (Loom.Web / WASM); desktop builds don't reference it, so it
-         defaults off and the browser host opts in. -->
-    <UseWebGPU Condition="'$(UseWebGPU)' == ''">false</UseWebGPU>
-  </PropertyGroup>
-
-  <PropertyGroup Label="Engine feature flags (gate code inside the engine assembly: repo-wide, not per-app)">
-    <UseNamedGPUObjects Condition="'$(UseNamedGPUObjects)' == ''">true</UseNamedGPUObjects>
-  </PropertyGroup>
-
-  <!--
-    Per-resource debug-visualization (the resource viewer + frustum-freeze wireframe). The resource viewer is
-    rendered through the engine's neutral draw-list API (IRenderContext.ResolveInspectable + IEngine
-    .ResourceInspectionEnabled), sidestepping ImGui's image/line helpers (which hit the win-arm64
-    ImVec2-by-value HFA marshaling defect). A production knob: no code reads LOOM_DEBUG_VIZ yet — wire host
-    debug UI to this flag if finer gating is wanted.
-  -->
-  <PropertyGroup Label="Debug visualization">
-    <UseDebugVisualization Condition="'$(UseDebugVisualization)' == ''">true</UseDebugVisualization>
-  </PropertyGroup>
-
-  <!--
-    Flag -> compile constant. Append with a leading ';' and never overwrite $(DefineConstants) (the .NET
-    SDK puts TRACE/DEBUG there). Done in props (evaluation-time) so IntelliSense / source generators see it.
-  -->
-  <PropertyGroup Label="Feature constants">
-    <!-- Let the host opt each backend's code path in/out at compile time, matching the SDK's UseVulkan/UseDirectX12
-         backend references so the constant is present exactly when that backend assembly is referenced. The
-         unified Sandbox host (Program.cs) names VulkanEngineSettings under LOOM_VULKAN and DirectX12EngineSettings
-         under LOOM_DIRECTX12, so it compiles cleanly with either backend disabled (and defaults to whichever is on). -->
-    <DefineConstants Condition="'$(UseVulkan)' == 'true'">$(DefineConstants);LOOM_VULKAN</DefineConstants>
-    <DefineConstants Condition="'$(UseDirectX12)' == 'true'">$(DefineConstants);LOOM_DIRECTX12</DefineConstants>
-    <DefineConstants Condition="'$(UseWebGPU)' == 'true'">$(DefineConstants);LOOM_WEBGPU</DefineConstants>
-    <DefineConstants Condition="'$(UseNamedGPUObjects)' == 'true'">$(DefineConstants);LOOM_NAMED_GPU_OBJECTS</DefineConstants>
-    <DefineConstants Condition="'$(UseDebugVisualization)' == 'true'">$(DefineConstants);LOOM_DEBUG_VIZ</DefineConstants>
-  </PropertyGroup>
 
 </Project>

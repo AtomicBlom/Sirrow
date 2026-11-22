@@ -1,52 +1,19 @@
 <Project>
 
-  <!--
-    Central Package Management for the Loom solution. Package versions live here as <PackageVersion>; the
-    individual projects carry version-less <PackageReference> items. MSBuild imports the nearest
-    Directory.Packages.props walking up from each project — the vendored submodule under external/ opts out via
-    its own external/Directory.Packages.props (it pins its own Silk.NET versions and must not be governed here).
-  -->
+  <!-- Central Package Management: versions live here as <PackageVersion>; the projects carry version-less
+       <PackageReference> items. -->
 
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
 
-  <ItemGroup Label="Silk.NET host + backends (Vulkan, DirectX12, windowing/input, maths)">
-    <PackageVersion Include="Silk.NET.Vulkan" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.Direct3D12" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.DXGI" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.Direct3D.Compilers" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.Windowing" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.Input" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.Maths" Version="2.23.0" />
-    <!-- SDL's own release builds of SDL3.dll, versioned as SDL is (github.com/AtomicBlom/Kaldra.SDL3). A newer SDL is a
-         newer package; SdlGamepadTests checks the version that loads. -->
+  <ItemGroup Label="The desktop output">
+    <!-- SDL's own release builds of SDL3.dll, versioned as SDL is (github.com/AtomicBlom/Kaldra.SDL3) -->
     <PackageVersion Include="BinaryVibrance.Kaldra.SDL3" Version="3.4.20" />
   </ItemGroup>
 
-  <ItemGroup Label="Shader toolchain + UI">
-    <!-- Also pinned as LoomSlangVersion in build/Loom.Sdk/Sdk/Sdk.targets, for consumers outside this file; the build
-         fails if the two differ. -->
-    <PackageVersion Include="Slang.Sdk" Version="0.5.1" />
-    <!-- Hermetic DXC for DXIL signing (replaces non-hermetic Windows-SDK DXC glob). Add a
-         Microsoft.Direct3D.DXC PackageReference with GeneratePathProperty=true to any project
-         that compiles shaders with LoomEmitDxil=true; Loom.Shaders.targets picks it up via
-         $(PkgMicrosoft_Direct3D_DXC). Build-machine only — the shipped app carries signed .dxil. -->
-    <PackageVersion Include="Microsoft.Direct3D.DXC" Version="1.9.2609.5" />
-    <PackageVersion Include="ImGui.NET" Version="1.91.6.1" />
-    <!-- Roslyn for the SUIsei.SourceGen XAML incremental generator (build-time analyzer, PrivateAssets=all). -->
+  <ItemGroup Label="The music generator (a Roslyn source generator), and the tests that compile what it writes">
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.14.0" />
-    <!-- Source-generator-based MVVM ([ObservableProperty]/[RelayCommand]) — no reflection, so it stays AOT/trim-safe
-         under the WASM publish. Backs the demo shell's per-demo debug panels. -->
-    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-  </ItemGroup>
-
-  <ItemGroup Label="Assets (Loom.Assets image + glTF loaders)">
-    <PackageVersion Include="StbImageSharp" Version="2.30.16" />
-    <PackageVersion Include="SharpGLTF.Toolkit" Version="1.0.7" />
   </ItemGroup>
 
   <ItemGroup Label="Tests (TUnit on Microsoft.Testing.Platform + Shouldly assertions)">
