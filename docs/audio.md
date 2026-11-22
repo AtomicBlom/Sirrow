@@ -519,7 +519,7 @@ asks for a 128-frame buffer. SDL rounds it to what the platform's audio API take
 WASAPI's period, 480 frames (10 ms) at 48 kHz. An output on the default device follows the system's default as it
 changes (headphones plugged in), which SDL does on its own.
 
-SDL 3 is the same `SDL3.dll` the host reads gamepads with, fetched by `Sdl3.targets` (see
+SDL 3 is the same `SDL3.dll` the host reads gamepads with, from the `BinaryVibrance.Kaldra.SDL3` package (see
 [api-vocabulary.md](api-vocabulary.md#input-on-the-desktop-loomhostingdesktop)). The gamepad pump and the audio device
 each start and stop only their own SDL subsystem, so closing one never stops the other. Where SDL3 is missing or won't
 load, the app runs silent on a `NullAudioDevice`.
