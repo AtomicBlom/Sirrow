@@ -690,12 +690,14 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
   progression dimmed, the bar playing lit and a playhead across the section, and its exits with where it goes next
   marked (`MusicPlayer.NextExit`). Down the left each track's head: a stripe in its hue, mute, solo, gain and meter, and
   a click shows it in the inspector, a menu (right-click) renames it, gives it another instrument, opens that instrument or
-  deletes it; **+ Add track** adds one. Both heads stay
+  deletes it. A line with a **+** shows along a head's top or bottom edge as the pointer nears it, and adds a track
+  there playing the patch or kit chosen from a list; **+ Add track** over the board adds the first. Both heads stay
   put over lanes that scroll both ways. Where a lane crosses a section, each part the track plays there: its title (a
   click opens it in the roll and the inspector), its condition on a chip (a click edits it), auto, on and off, and under
   them every pass of its part across the section in the track's hue, the pass playing lit, those to come dimmed, the
-  fill marked, all faded while the condition doesn't hold (`MusicPlayer.SectionPatternOf`, `PositionOf`); a **+** in an
-  empty cell, or **+ Part** under the parts already there, adds one: a beat on a kit's track, otherwise a melody, a bass
+  fill marked, all faded while the condition doesn't hold (`MusicPlayer.SectionPatternOf`, `PositionOf`). A **+** in an
+  empty cell while the pointer is over it, or a line with a **+** where the pointer nears the gap above, between or under
+  the parts already there, adds one just there: a beat on a kit's track, otherwise a melody, a bass
   line over the chords (`overChords`, an octave down), block chords (a strum in the close voicing with no spread) or a
   strum. **The inspector** beside the board changes the song,
   section, track or part chosen: the song's tempo, key and scale; a section's name, bars, chords and
@@ -725,6 +727,10 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
 - **Patch**, the patch designer. The patch chosen as data (`PatchSpec`): its operators drawn as a graph in render order
   (an operator a column right of the deepest it reads; modulation amber with its index, driving teal and dashed, the
   heard to Out), the voice after them as a chain, and a scope and spectrum of what the bus plays (an `AudioTap` on it).
+  A patch is shared: every song with a track playing it plays its edits, so the designer names the songs it is used in.
+  **Duplicate…** copies its file under a new name, and a track's inspector, where other songs play its patch too, offers
+  **Make a copy for this song**, which copies it as `<patch>-<song>`, gives the track the copy once the project has built
+  with it, and opens it, leaving the other songs as they were.
   Beside it an inspector: the operator chosen (heard and at what level and pan, pitch, its kind's settings, level and
   velocity, across the keyboard, modulated or driven only by an operator before it, the envelope; listen to it alone,
   delete it; a node dragged up or down its column moves it in the order, as far as what it reads allows), the voice, the macros with their live values, and the C# that builds it (`PatchCode`), copied
