@@ -64,6 +64,12 @@ public static class SongFile
 
 	private static readonly string[] NoteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
+	/// <summary>The roots a file's <c>"scale"</c> may start with, C to B in sharps: "C", "C#", … "B".</summary>
+	public static IReadOnlyList<string> ScaleRoots => NoteNames;
+
+	/// <summary>The scales a file's <c>"scale"</c> may name after its root: "major", "minor", "dorian", … "blues".</summary>
+	public static IReadOnlyList<string> ScaleNames { get; } = [.. Scales.Select(s => s.Name)];
+
 	/// <summary>The file for <paramref name="song"/>, its references named by <paramref name="names"/>.</summary>
 	/// <exception cref="NotSupportedException">The song holds something a file can't say: a patch the catalog doesn't name.</exception>
 	public static string Write(Song song, SongNames? names = null) => Write(ToJson(song, names));

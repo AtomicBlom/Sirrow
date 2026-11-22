@@ -47,6 +47,31 @@ public readonly record struct NoteToken(int Degree, int Octave = 0, int Accident
 		return i == token.Length ? new NoteToken(degree, octave, accidental, accent, slide) : null;
 	}
 
+	/// <summary>
+	/// The notes a line's step starts: one, or several stacked with <c>/</c> (<c>1/3/5</c>) to sound together and share a
+	/// length. Null for a hold, a rest, or anything one of whose notes isn't one.
+	/// </summary>
+	public static IReadOnlyList<NoteToken>? ParseStack(string token)
+	{
+		ArgumentNullException.ThrowIfNull(token);
+		var parts = token.Split('/');
+		var notes = new NoteToken[parts.Length];
+		for (var i = 0; i < parts.Length; i++)
+		{
+			if (Parse(parts[i]) is not { } note)
+				return null;
+			notes[i] = note;
+		}
+		return notes;
+	}
+
+	/// <summary>Notes written as one step of a line: lowest first, joined by <c>/</c>, one to a row (the last given for a row wins).</summary>
+	public static string Stack(IEnumerable<NoteToken> notes)
+	{
+		ArgumentNullException.ThrowIfNull(notes);
+		return string.Join('/', notes.GroupBy(n => n.Row).Select(g => g.Last()).OrderBy(n => n.Row).Select(n => n.ToString()));
+	}
+
 	/// <summary>The token, as a line's notation writes it.</summary>
 	public override string ToString()
 	{

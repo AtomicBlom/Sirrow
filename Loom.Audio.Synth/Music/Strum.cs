@@ -113,6 +113,16 @@ public sealed class Strum : Part
 		return [.. notes];
 	}
 
+	/// <summary>
+	/// The MIDI notes of a chord in <see cref="Music.Voicing.Close"/>: its root in <paramref name="octave"/> (C4 is 60, as
+	/// a line's degree 1 in octave 4), then each interval above it, low to high.
+	/// </summary>
+	internal static int[] Close(int root, int[] intervals, int octave)
+	{
+		var bass = 12 * (octave + 1) + root;
+		return [.. intervals.Select(interval => bass + interval)];
+	}
+
 	private static int Mod12(int x) => ((x % 12) + 12) % 12;
 
 	internal sealed class Parsed(Strum strum, int lengthTicks, (int Tick, char Stroke)[] strokes) : ParsedPart(lengthTicks)
@@ -132,7 +142,9 @@ public sealed class Strum : Part
 				var end = Math.Min(limit, i + 1 < strokes.Length ? context.Swung(offset + strokes[i + 1].Tick) : offset + LengthTicks);
 				tick = context.Swung(tick);
 				var chord = context.ChordAt(tick);
-				var voiced = Voice(chord.RootClass(context.Scale), chord.Intervals(context.Scale), strum._voicing);
+				var voiced = strum._voicing == Music.Voicing.Close
+					? Close(chord.RootClass(context.Scale), chord.Intervals(context.Scale), context.TrackOctave)
+					: Voice(chord.RootClass(context.Scale), chord.Intervals(context.Scale), strum._voicing);
 				var up = stroke is 'U' or 'u';
 				var velocity = stroke switch { 'D' => 0.8f, 'U' => 0.7f, 'x' => 0.5f, _ => 0.5f };
 				var count = up ? Math.Min(4, voiced.Length) : voiced.Length;

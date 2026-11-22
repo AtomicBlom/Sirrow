@@ -559,7 +559,8 @@ A mistake in any of them throws a `NotationException` when the part is placed, q
 | `b` or `#` before it | Down or up a semitone, each |
 | `^` first | An accent: velocity 1, where a note has 0.8 |
 | `~` last | A slide: the note runs its full length into the next (a mono patch glides) |
-| `-` | Hold the note before a step more |
+| `/` between notes | A chord: `1/3/5` starts the notes together, and they share their holds |
+| `-` | Hold the note (or chord) before a step more |
 | `.` | Rest |
 | `\|` | The end of a bar |
 
@@ -583,7 +584,8 @@ section's at that step.
 | `_` | Stop the strings |
 
 A strum rings until the next character that isn't `.`. `Voicing(Open)` lays the chord as a guitar plays it in the first
-frets (`Power` and `Triad` too); `Spread(ms)` sets the time between strings (12 ms).
+frets (`Power` and `Triad` too); `Voicing(Close)` stacks its notes up from the root in the track's octave, as a hand
+plays it on keys, which with `Spread(0)` sounds as block chords; `Spread(ms)` sets the time between strings (12 ms).
 
 ### Sections, tracks and placements
 
@@ -673,33 +675,45 @@ app of your own", at the end of this section), though `loom-workbench` is the wa
 
 What it shows, one job at a time: a rail down the left gives the middle of the window to **Arrange**, **Patch**,
 **Kit** or **Files**, and the keyboard docked along the bottom plays what that mode has chosen.
-- **The transport.** The song chosen, play and stop, the position (section, bar, beat), the tempo and the scale, the
-  loop on the section playing, and the host's own controls. At its right, the last build's status as a pill: red when
+- **The transport.** The song chosen, play and stop, the position (section, bar, beat), the tempo and the scale (a
+  click shows the song in the inspector), the loop on the section playing, and the host's own controls. At its right, the last build's status as a pill: red when
   the song didn't build, and a click opens its error over the view (the last song that built plays on).
 - **The library** (the rail's first button): the catalog's songs, patches and kits as lists under their kinds, each row
   its kind's icon, filtered by the words typed; **+** on Songs and Patches makes a new file beside the project's others
   (a patch blank or a copy of the one open), listed once the project builds again (the generator lists every file's
-  patch and song, `Patches.Files` and `SongFiles.All`). It opens over the view and folds away once something is chosen;
-  **Pin** keeps it open as a column.
-- **Arrange**, a board. Across the top each section's head: its name (chosen, it is shown in the inspector), a button
+  patch and song, `Patches.Files` and `SongFiles.All`), and then opened. It opens over the view and folds away once something is chosen;
+  **Pin** keeps it open as a column. A patch or kit dragged out of it onto the board adds a track that plays it, named
+  for it.
+- **Arrange**, a board. The song's name above it shows the song in the inspector. Across the top each section's head: its name (chosen, it is shown in the inspector), a button
   that plays it from the next bar, a ruler of its bars with each bar's chords (a click opens a picker: degree, flat or
   sharp, kind, the bar split into two or four, a bar added or taken out of the progression), the bars that repeat the
   progression dimmed, the bar playing lit and a playhead across the section, and its exits with where it goes next
   marked (`MusicPlayer.NextExit`). Down the left each track's head: a stripe in its hue, mute, solo, gain and meter, and
-  a menu (right-click) to rename it, give it another instrument or take it out; **+ Track** adds one. Both heads stay
+  a click shows it in the inspector, a menu (right-click) renames it, gives it another instrument, opens that instrument or
+  deletes it. A line with a **+** shows along a head's top or bottom edge as the pointer nears it, and adds a track
+  there playing the patch or kit chosen from a list; **+ Add track** over the board adds the first. Both heads stay
   put over lanes that scroll both ways. Where a lane crosses a section, each part the track plays there: its title (a
   click opens it in the roll and the inspector), its condition on a chip (a click edits it), auto, on and off, and under
   them every pass of its part across the section in the track's hue, the pass playing lit, those to come dimmed, the
-  fill marked, all faded while the condition doesn't hold (`MusicPlayer.SectionPatternOf`, `PositionOf`); an empty cell
-  adds a part. **The inspector** beside the board changes the section or part chosen: a section's name, bars, chords and
-  exits (each a condition and where it goes, reordered, the last "otherwise"), a part's condition, the cue its level
-  follows, whether it waits for its phrase, its fill. A condition is edited as rows (a cue or the pass, a comparison, a
+  fill marked, all faded while the condition doesn't hold (`MusicPlayer.SectionPatternOf`, `PositionOf`). A **+** in an
+  empty cell while the pointer is over it, or a line with a **+** where the pointer nears the gap above, between or under
+  the parts already there, adds one just there: a beat on a kit's track, otherwise a melody, a bass
+  line over the chords (`overChords`, an octave down), block chords (a strum in the close voicing with no spread) or a
+  strum. **The inspector** beside the board changes the song,
+  section, track or part chosen: the song's tempo, key and scale; a section's name, bars, chords and
+  exits (each a condition and where it goes, reordered, the last "otherwise"); a track's name and instrument, its patch
+  opened in the designer from there, whose edits the song plays from the next bar once they pause, until the project
+  builds again with them saved; a part's condition, the cue its volume follows, whether it waits for its phrase, its
+  grid (quarter, eighth or sixteenth notes or triplets, its notes respaced to keep their timing, `RollEdits.Regrid`),
+  whether a line follows the chords, its fill. A track and a part are deleted from a button at the inspector's foot. A condition is edited as rows (a cue or the pass, a comparison, a
   value) joined by all or any, or as text where rows can't hold it. Beside them **the cues**: a slider for a `Cue` with
   the levels parts and exits wait on marked over it and what waits on each, a button per value for a `Cue<T>`; one the
   song doesn't read is disabled. The part chosen is in the panel under the board, past a splitter.
 - **The roll.** When the song has a file (section 11) and the part chosen is data there, it is edited below in place of
   its drawing. A line on rows by degree, three octaves of them to scroll through (the wheel, Shift for across), the part's
-  notes brought into view as it opens; a beat on a row for every piece of its kit: a click adds a note, a drag from a note's last step lengthens it, a drag
+  notes brought into view as it opens, and under each chord of the section's first pass the rows its notes are on lit, its
+  root brighter, as the line plays them (following the chords or not); a click on another row where notes start stacks a
+  chord there (`1/3/5`), whose notes are moved, changed and deleted one at a time and lengthen together; a beat on a row for every piece of its kit: a click adds a note, a drag from a note's last step lengthens it, a drag
   elsewhere (or off its row) moves it, a right-click or a second click deletes it. A beat's rows: a click cycles a step
   through `x`, `X`, `o` and off. A strum: `D`, `U`, `d`, `u`, `x`, `_`. The roll's tools are glyphs over it, a hint under
   them saying what a click and a drag do for the part: a line's flat, natural, sharp and slide, then accent and delete for
@@ -713,9 +727,13 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
 - **Patch**, the patch designer. The patch chosen as data (`PatchSpec`): its operators drawn as a graph in render order
   (an operator a column right of the deepest it reads; modulation amber with its index, driving teal and dashed, the
   heard to Out), the voice after them as a chain, and a scope and spectrum of what the bus plays (an `AudioTap` on it).
+  A patch is shared: every song with a track playing it plays its edits, so the designer names the songs it is used in.
+  **Duplicate…** copies its file under a new name, and a track's inspector, where other songs play its patch too, offers
+  **Make a copy for this song**, which copies it as `<patch>-<song>`, gives the track the copy once the project has built
+  with it, and opens it, leaving the other songs as they were.
   Beside it an inspector: the operator chosen (heard and at what level and pan, pitch, its kind's settings, level and
   velocity, across the keyboard, modulated or driven only by an operator before it, the envelope; listen to it alone,
-  move it, delete it), the voice, the macros with their live values, and the C# that builds it (`PatchCode`), copied
+  delete it; a node dragged up or down its column moves it in the order, as far as what it reads allows), the voice, the macros with their live values, and the C# that builds it (`PatchCode`), copied
   through the host (`Workbench.CopyText`). Every edit builds the patch again as `Patch.Build` checks it and is heard
   from the next note (`SynthChip.Replace`); what the builder refuses is shown while the last that built plays on. A
   rebuild after a code change keeps the edits; Revert and "Hear its code" go back to the patch as its code has it. A

@@ -37,6 +37,9 @@ public sealed class Section
 	/// <summary>Its chords bar by bar, as written and as read. Fewer bars than the section has repeat to fill it.</summary>
 	public IReadOnlyList<ChordBar> Progression => Chords.Progression;
 
+	/// <summary>The chord sounding <paramref name="sectionTick"/> ticks into it: a pass's, its progression repeating past its bars.</summary>
+	public Chord ChordAt(int sectionTick) => Chords.At(sectionTick, Song.Meter.TicksPerBar);
+
 	/// <summary>
 	/// Its ways out, in the order they are tried as it ends: the first whose condition holds is taken, and the last, made by
 	/// <see cref="Then"/>, always holds. A section with none plays again.
