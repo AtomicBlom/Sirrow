@@ -2,9 +2,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-using Loom.Audio;
-
-namespace Loom.Hosting.Desktop.Sdl;
+namespace Loom.Audio.Sdl;
 
 /// <summary>
 /// The desktop's audio output, through SDL 3: the system's default playback device, opened at its own rate in 32-bit

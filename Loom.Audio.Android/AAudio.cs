@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Loom.Hosting.Android.Audio;
+namespace Loom.Audio.Android;
 
 /// <summary>
 /// The few AAudio functions the audio device uses (<c>libaaudio.so</c>, the NDK's C audio API, on every device from

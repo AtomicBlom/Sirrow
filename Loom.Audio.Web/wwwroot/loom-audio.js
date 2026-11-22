@@ -1,5 +1,5 @@
-// The browser half of Loom's audio device (WebAudioDevice in Loom.Hosting.Web), registered as the 'loom-audio' JS
-// module (loom-boot.js). The mixer runs in C#, once a frame, a little ahead of the speaker; it hands each frame's samples
+// The browser half of Loom.Audio.Web's audio device (WebAudioDevice), imported as the 'loom-audio' JS module by
+// WebAudio.RegisterAsync. The mixer runs in C#, once a frame, a little ahead of the speaker; it hands each frame's samples
 // here, and they go to an AudioWorklet (loom-audio-worklet.js) that plays them on the browser's audio thread. The worklet
 // counts what it has played back to us, so the C# side always knows how far ahead of the speaker it is.
 //

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Loom.Hosting.Android.Audio;
+namespace Loom.Audio.Android;
 
 /// <summary>
 /// The AAudio callback shim, <c>libloomaaudio.so</c> (built from <c>Native/loom_aaudio.c</c>). Android builds

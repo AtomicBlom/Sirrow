@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Rebuilds libloomaaudio.so, the AAudio callback shim (loom_aaudio.c), for each ABI the Android host ships, into lib/<abi>/.
+Rebuilds libloomaaudio.so, the AAudio callback shim (loom_aaudio.c), for each ABI Loom.Audio.Android ships, into lib/<abi>/.
 
 .DESCRIPTION
 The built libraries are checked in, so building Loom needs no NDK; run this only after changing loom_aaudio.c. Finds the
@@ -8,7 +8,7 @@ NDK from -Ndk, then ANDROID_NDK_ROOT / ANDROID_NDK_HOME, then the newest under t
 Linked for 16 KB pages, which Android 15 devices may use and Google Play requires.
 
 .EXAMPLE
-pwsh Loom.Hosting.Android/Native/build.ps1
+pwsh Loom.Audio.Android/Native/build.ps1
 #>
 param([string]$Ndk)
 
@@ -29,7 +29,7 @@ $exe = if ($hostTag -eq 'windows-x86_64') { '.exe' } else { '' }
 $clang = Join-Path $bin "clang$exe"
 $strip = Join-Path $bin "llvm-strip$exe"
 
-# The Android host's minimum, SupportedOSPlatformVersion in Loom.Hosting.Android.csproj
+# The package's minimum, SupportedOSPlatformVersion in Loom.Audio.Android.csproj
 $api = 29
 $targets = @{ 'arm64-v8a' = 'aarch64-linux-android'; 'x86_64' = 'x86_64-linux-android' }
 $source = Join-Path $PSScriptRoot 'loom_aaudio.c'
