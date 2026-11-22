@@ -2,41 +2,44 @@
 
 `Loom.Audio` is the audio subsystem for the [Loom engine](https://github.com/AtomicBlom/Loom): a mixer with buses and
 pooled voices, clips decoded into memory, and **sources** — sound a game writes itself, sample by sample, for software
-synthesizers, procedural engine notes and generated music. It depends only on the BCL. Each platform's host opens the
-output device behind one seam, `IAudioDevice`:
+synthesizers, procedural engine notes and generated music. It depends only on the BCL, and needs no engine. Each
+platform's output device is a package of its own behind one seam, `IAudioDevice`:
 
-| Host | Backend | Where the mix runs | Latency it adds |
-|---|---|---|---|
-| Desktop (`Loom.Hosting.Desktop`) | SDL 3 | SDL's audio thread | one device buffer (the platform's period: 10 ms on Windows' shared-mode WASAPI) |
-| Android (`Loom.Hosting.Android`) | AAudio, low-latency, exclusive where the device allows | AAudio's callback thread | two bursts (4 ms on a Galaxy S23 Ultra's exclusive MMAP path) |
-| Browser (`Loom.Hosting.Web`) | an AudioWorklet | the frame thread, a 50 ms lead ahead of the speaker | the lead, by design: the .NET runtime can't run on the browser's audio thread |
+| Platform | Package | Backend | Where the mix runs | Latency it adds |
+|---|---|---|---|---|
+| Desktop | `Loom.Audio.Sdl` | SDL 3 | SDL's audio thread | one device buffer (the platform's period: 10 ms on Windows' shared-mode WASAPI) |
+| Android | `Loom.Audio.Android` | AAudio, low-latency, exclusive where the device allows | AAudio's callback thread | two bursts (4 ms on a Galaxy S23 Ultra's exclusive MMAP path) |
+| Browser | `Loom.Audio.Web` | an AudioWorklet | the frame thread, a 50 ms lead ahead of the speaker | the lead, by design: the .NET runtime can't run on the browser's audio thread |
 
 This page is the summary. [The audio guide](https://github.com/AtomicBlom/Loom/blob/master/docs/audio.md) covers the
 whole API, the threading model, and what each platform's device does.
 
-## Use it from a LoomApplication
+## Use it
 
 ```csharp
-protected override void Configure(AppOptions options) => options.Audio = new AudioOptions();
+// Each entry point registers its platform's output, once:
+SdlAudio.Register();            // desktop
+AndroidAudio.Register();        // Android
+await WebAudio.RegisterAsync(); // browser
 
-protected override void LoadContent()
-{
-	var music = Audio.CreateBus("music");
-	var sfx = Audio.CreateBus("sfx");
-	_hit = Audio.LoadWav(ReadContent("sounds/hit.wav"));
-	Audio.Play(_synth, music);              // an AudioSource of the game's own
-}
+// Then, the same everywhere:
+var options = new AudioOptions();
+var audio = new AudioEngine(AudioOutput.Open(options), options);
+var music = audio.CreateBus("music");
+var sfx = audio.CreateBus("sfx");
+var hit = audio.LoadWav(File.OpenRead("sounds/hit.wav"));
+audio.Play(synth, music);               // an AudioSource of the game's own
+audio.Play(hit, sfx, volume: 0.8f, pitch: 1.1f, pan: -0.3f);
+synth.Cutoff.Value = 1200f;             // an AudioParameter, read on the audio thread
 
-protected override void Update(FrameTime time)
-{
-	if (Input.Pressed(Key.Space))
-		Audio.Play(_hit, sfx, volume: 0.8f, pitch: 1.1f, pan: -0.3f);
-	_synth.Cutoff.Value = 1200f;            // an AudioParameter, read on the audio thread
-}
+// Once a frame, after the frame has started what it plays (in the browser, the frame's mix is sent here):
+audio.Update();
+// As the app leaves the screen and comes back, loses and regains focus, and closes:
+audio.Pause(); audio.Resume(); audio.SetFocused(false); audio.Dispose();
 ```
 
 `samples/HelloAudio` is a whole app: an eight-voice synthesizer played from the keyboard, an arpeggiator running on
-the audio thread's sample clock, and a clip fired from the game.
+the audio thread's sample clock, and a clip fired from the game, on the desktop, on Android and in the browser.
 
 ## Write a source
 

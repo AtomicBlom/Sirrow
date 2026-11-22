@@ -4,14 +4,15 @@ How to make sound in a Loom app: clips played on voices, mixed through buses, an
 itself sample by sample (software synthesizers, procedural engine notes, generated music). Then what runs on which
 thread, and what each platform does underneath.
 
-[`Loom.Audio`](../Loom.Audio) holds the mixer and depends only on the BCL, as `Loom.Input` does. Each host opens its
-platform's output device behind one seam, `IAudioDevice`:
+[`Loom.Audio`](../Loom.Audio) holds the mixer and depends only on the BCL, as `Loom.Input` does. It needs no engine:
+the engine knows nothing of audio, and an app opens its output itself. Each platform's output is a package of its own
+behind one seam, `IAudioDevice`:
 
-| Host | Device | Where the mix runs | Latency the mix adds |
-|---|---|---|---|
-| Desktop (`Loom.Hosting.Desktop`) | SDL 3, the system's default output | SDL's audio thread | one device buffer: 480 frames (10 ms) on Windows, the floor of shared-mode WASAPI |
-| Android (`Loom.Hosting.Android`) | AAudio, low-latency, exclusive where the device allows | AAudio's callback thread | two bursts: 192 frames (4 ms) on a Galaxy S23 Ultra's exclusive MMAP path |
-| Browser (`Loom.Hosting.Web`) | an AudioWorklet | the frame thread, 50 ms ahead of the speaker | the 50 ms lead, by design (see [The browser](#the-browser)) |
+| Platform | Package | Device | Where the mix runs | Latency the mix adds |
+|---|---|---|---|---|
+| Desktop | [`Loom.Audio.Sdl`](../Loom.Audio.Sdl) | SDL 3, the system's default output | SDL's audio thread | one device buffer: 480 frames (10 ms) on Windows, the floor of shared-mode WASAPI |
+| Android | [`Loom.Audio.Android`](../Loom.Audio.Android) | AAudio, low-latency, exclusive where the device allows | AAudio's callback thread | two bursts: 192 frames (4 ms) on a Galaxy S23 Ultra's exclusive MMAP path |
+| Browser | [`Loom.Audio.Web`](../Loom.Audio.Web) | an AudioWorklet | the frame thread, 50 ms ahead of the speaker | the 50 ms lead, by design (see [The browser](#the-browser)) |
 
 `samples/HelloAudio` is a whole app built on all of it: an eight-voice synthesizer played from the keyboard, an
 arpeggiator timed on the audio clock, and a clip fired from the game. It builds as a desktop exe, an Android APK and a
@@ -24,42 +25,42 @@ Sound built on top of the mixer (rendering offline to measure it or save it as a
 
 ## 1. Turning it on
 
-Set `AppOptions.Audio` in `Configure`, then play through `LoomApplication.Audio`:
+Each of the app's entry points registers its platform's output, once, before anything opens audio:
 
 ```csharp
-sealed class MyGame : LoomApplication
-{
-	private AudioBus _sfx;
-	private AudioClip _hit = null!;
-
-	protected override void Configure(AppOptions options) =>
-		options.Audio = new AudioOptions(); // the device's own rate and its smallest buffer
-
-	protected override void LoadContent()
-	{
-		_sfx = Audio.CreateBus("sfx");
-		_hit = Audio.LoadWav(ReadContent("sounds/hit.wav"));
-	}
-
-	protected override void Update(FrameTime time)
-	{
-		if (Input.Pressed(Key.Space))
-			Audio.Play(_hit, _sfx, volume: 0.8f, pitch: 1.1f, pan: -0.3f);
-	}
-}
+SdlAudio.Register();            // the desktop's Main (Loom.Audio.Sdl)
+AndroidAudio.Register();        // the Android activity (Loom.Audio.Android)
+await WebAudio.RegisterAsync(); // the browser's Main (Loom.Audio.Web): loads its page module
 ```
 
-`LoomApplication` runs the engine through the app's lifecycle, so an app never opens, pumps or closes it:
+Shared code then opens the output the same way everywhere, makes an `AudioEngine` over it, and plays. The rest of this
+guide calls the engine `Audio`, as a property of the app's:
 
-| When | What happens |
+```csharp
+var options = new AudioOptions(); // the device's own rate and its smallest buffer
+Audio = new AudioEngine(AudioOutput.Open(options), options);
+var sfx = Audio.CreateBus("sfx");
+var hit = Audio.LoadWav(File.OpenRead("sounds/hit.wav"));
+Audio.Play(hit, sfx, volume: 0.8f, pitch: 1.1f, pan: -0.3f);
+```
+
+`AudioOutput.Open` tries the registered outputs in the order they were registered. Where none opens (SDL3.dll missing,
+no output), it returns a `NullAudioDevice` that says why, and the app runs on, silent. Registering is explicit, not
+done by a package on its own as it loads: an assembly nothing names may never load, and NativeAOT and the browser's AOT
+keep only what is reached.
+
+The app runs the engine through its own lifecycle. These are the calls, and when to make them:
+
+| When | Call |
 |---|---|
-| Before `LoadContent` | The host opens its output device and the app's `AudioEngine` starts it. The log names the backend, the output, the rate and the buffer granted. |
-| Every tick, after `Update` and `BeforeRender` | `Audio.Update()`: frees the voices that ended and throws what a source threw on the audio thread. |
-| `OnSuspending` / `OnResumed` | The device pauses after `OnSuspending` and resumes before `OnResumed`. Voices hold where they are. |
-| The window or tab loses or regains focus | `Audio.SetFocused`, before `OnFocusChanged`: the output fades to `AudioOptions.UnfocusedVolume` and back (see below). |
-| After `UnloadContent` | The engine closes the device. |
+| As the app loads | `new AudioEngine(AudioOutput.Open(options), options)`, which starts the device. `Audio.Device` says what was granted: the backend, the output, the rate and the buffer. |
+| Once a frame, after the frame has started what it plays | `Audio.Update()`: frees the voices that ended, throws what a source threw on the audio thread, and pumps the device. In the browser, that is when the frame's mix is rendered and sent, so an app that skips it plays nothing there. |
+| As the app leaves the screen, and comes back | `Audio.Pause()` and `Audio.Resume()`. Voices hold where they are. |
+| As the window or tab loses or regains focus | `Audio.SetFocused(focused)`: the output fades to `AudioOptions.UnfocusedVolume` and back (see below). |
+| As the app closes | `Audio.Dispose()`, which closes the device. |
 
-With `AppOptions.Audio` left null, audio is off and reading `Audio` throws.
+In a `LoomApplication`, those are `LoadContent`, `BeforeRender`, `OnSuspending` / `OnResumed`, `OnFocusChanged` and
+`UnloadContent`. `samples/HelloAudio` does exactly that.
 
 ### `AudioOptions`
 
@@ -514,19 +515,19 @@ compiling and the app loading on every core. The underruns, not the load, say wh
 
 ### The desktop
 
-The desktop host opens the system's default output through SDL 3, at the device's own rate in 32-bit float stereo, and
+`Loom.Audio.Sdl` opens the system's default output through SDL 3, at the device's own rate in 32-bit float stereo, and
 asks for a 128-frame buffer. SDL rounds it to what the platform's audio API takes: on Windows that is shared-mode
 WASAPI's period, 480 frames (10 ms) at 48 kHz. An output on the default device follows the system's default as it
 changes (headphones plugged in), which SDL does on its own.
 
-SDL 3 is the same `SDL3.dll` the host reads gamepads with, from the `BinaryVibrance.Kaldra.SDL3` package (see
-[api-vocabulary.md](api-vocabulary.md#input-on-the-desktop-loomhostingdesktop)). The gamepad pump and the audio device
-each start and stop only their own SDL subsystem, so closing one never stops the other. Where SDL3 is missing or won't
-load, the app runs silent on a `NullAudioDevice`.
+SDL 3 comes from the `BinaryVibrance.Kaldra.SDL3` package, the same `SDL3.dll` the desktop host reads gamepads with
+(see [api-vocabulary.md](api-vocabulary.md#input-on-the-desktop-loomhostingdesktop)), so an app with both loads one
+SDL. Each starts and stops only its own SDL subsystem, so closing one never stops the other. Where SDL3 is missing or
+won't load, `AudioOutput.Open` returns a `NullAudioDevice` and the app runs silent.
 
 ### Android
 
-The Android host opens an AAudio output stream: low-latency performance mode, exclusive sharing where the device
+`Loom.Audio.Android` opens an AAudio output stream: low-latency performance mode, exclusive sharing where the device
 offers it (the MMAP path, straight into the hardware's buffer), usage `GAME`, and a buffer of two bursts, the floor
 AAudio's own guidance gives for glitch-free low latency. The mixer renders straight into AAudio's buffer on AAudio's
 high-priority callback thread.
@@ -540,15 +541,15 @@ high-priority callback thread.
 - **AAudio calls C# through a native shim.** Android builds `libaaudio` with Control-Flow Integrity, which crashes
   (SIGSEGV in `__cfi_slowpath`) on a callback whose code lies outside any loaded library, and a C#
   `[UnmanagedCallersOnly]` entry point is a runtime stub outside every library. So AAudio calls two forwarding
-  functions in `libloomaaudio.so` (`Loom.Hosting.Android/Native/loom_aaudio.c`), built without CFI, and they call the
+  functions in `libloomaaudio.so` (`Loom.Audio.Android/Native/loom_aaudio.c`), built without CFI, and they call the
   C# callbacks. The built libraries for `arm64-v8a` and `x86_64`, linked for 16 KB pages, are checked in under
-  `Native/lib/`, so building Loom needs no NDK. Rebuild them with `pwsh Loom.Hosting.Android/Native/build.ps1` after
+  `Native/lib/`, so building needs no NDK. Rebuild them with `pwsh Loom.Audio.Android/Native/build.ps1` after
   changing `loom_aaudio.c`.
 
 ### The browser
 
-The .NET runtime can't run on the browser's audio thread, so the browser host turns the usual arrangement around. The
-mix runs on the frame thread, once a frame, after the app's tick. It tops up an AudioWorklet's queue to a lead of 50 ms
+The .NET runtime can't run on the browser's audio thread, so `Loom.Audio.Web` turns the usual arrangement around. The
+mix runs on the frame thread, once a frame, in `AudioEngine.Update`. It tops up an AudioWorklet's queue to a lead of 50 ms
 ahead of the speaker (`AudioOptions.BufferFrames` sets it), and the worklet plays from that queue on the browser's
 audio thread. The lead is the web's latency, and it is what rides out a late frame: a frame later than the lead is
 heard as a gap.
@@ -556,28 +557,29 @@ heard as a gap.
 Because the mix runs on the frame thread, a source's `Render` runs there too. The rules for `Render` and the lock-free
 types work the same, so a source written for the desktop runs unchanged.
 
-- **A page makes sound only after the player's first click, tap or key.** The host listens for it and resumes the
-  AudioContext. Until then the mix keeps time (voices advance and end) and sends nothing.
+- **A page makes sound only after the player's first click, tap or key.** `loom-audio.js` listens for it and resumes
+  the AudioContext. Until then the mix keeps time (voices advance and end) and sends nothing.
 - When the frame loop stalls (a background tab), the mix skips the time it missed, a quarter second at most, rather
   than rendering the whole gap at once.
 - `__loomAudio()` at the browser's console reports the output's state, its rate and latencies, and the frames sent and
   played (sent minus played is how far the mix runs ahead of the speaker).
-- An embedder that boots the .NET runtime itself must register the `loom-audio` JS module beside `loom-webgpu` (see
-  `loom-boot.js`).
+- `WebAudio.RegisterAsync` loads the `loom-audio` JS module itself (from `_content/Loom.Audio.Web/`), so the page needs
+  nothing added, whoever boots the runtime.
 
-### A host of your own, and tests
+### An output of your own, and tests
 
-`IHostControl.OpenAudioDevice(AudioOptions)` is how a host hands the app its output. The default returns a
-`NullAudioDevice`, so a host with no audio needs nothing. A host with an output implements `IAudioDevice`: once started, it asks the
-renderer for interleaved stereo 32-bit float at its `SampleRate`, on a thread of its own (or, as the browser's does,
-whenever the host pumps it), and it pauses and resumes on request.
+An output is an `IAudioDevice`, registered with `AudioOutput.Register(name, open)`, where `open` returns the device
+opened for the options or null with the reason it couldn't. Once started, a device asks the renderer for interleaved
+stereo 32-bit float at its `SampleRate`, on a thread of its own, or in `Pump`, which `AudioEngine.Update` calls once a
+frame (the browser's does that), and it pauses and resumes on request.
 
 An `AudioEngine` also works on its own, over any `IAudioDevice`. `OfflineAudioDevice` renders only when asked, on the
 caller's thread: for tests, for rendering to a file faster than real time, and for a host that pumps audio itself.
 `Loom.Audio.Synth`'s `OfflineSession` wraps one, keeping what it renders ([the synthesis guide](synth.md)).
 `Loom.Tests` tests the mixer through it (`AudioEngineTests`, `AudioEffectTests`, `AudioDuckTests`, `Audio3DTests`, `AudioStreamTests`, `AudioEventQueueTests`,
-`WavDecoderTests`, `VorbisDecoderTests`, `FlacDecoderTests`), and the real
-SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is missing.
+`WavDecoderTests`, `VorbisDecoderTests`, `FlacDecoderTests`), opening an output and pumping it through
+`AudioOutputTests`, and the real SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is
+missing.
 
 ---
 

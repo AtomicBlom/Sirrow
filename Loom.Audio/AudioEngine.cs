@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 
@@ -9,10 +10,11 @@ using Loom.Audio.Mixing;
 namespace Loom.Audio;
 
 /// <summary>
-/// An app's audio: clips and sources playing on voices, mixed through a tree of buses to a device. A
-/// <c>LoomApplication</c> opens one for itself when <c>AppOptions.Audio</c> is set (its <c>Audio</c> property); a tool or
-/// test can make one over any <see cref="IAudioDevice"/>.
+/// An app's audio: clips and sources playing on voices, mixed through a tree of buses to a device. An app makes one over
+/// the platform's output (<see cref="AudioOutput.Open"/>); a tool or test can make one over any
+/// <see cref="IAudioDevice"/>.
 /// <code>
+/// using var Audio = new AudioEngine(AudioOutput.Open(options), options);
 /// var music = Audio.CreateBus("music");
 /// var sfx = Audio.CreateBus("sfx");
 /// var hit = Audio.LoadWav(ReadContent("sounds/hit.wav"));
@@ -72,6 +74,7 @@ public sealed class AudioEngine : IDisposable
 	// Which voices were played in 3D, by slot, and the listener as last sent (so an unmoved listener sends nothing)
 	private readonly bool[] _spatial;
 	private (Vector3? Position, Vector3? Forward, Vector3? Up, Vector3? Velocity) _listenerSent;
+	private long _lastPump; // Update's last call, as a Stopwatch timestamp: the time a device's Pump is given
 	private bool _disposed;
 
 	/// <summary>An engine playing through <paramref name="device"/>, which it starts and from then on owns (disposing it with itself).</summary>
@@ -822,8 +825,9 @@ public sealed class AudioEngine : IDisposable
 	/// <summary>
 	/// Hears from the audio thread: frees the voices that have ended, and throws what a source threw there, a stream's
 	/// decoding threw, or an <see cref="AheadSource"/>'s inner source threw. With <see cref="AudioWork.Update"/> (and in the
-	/// browser, by default) it also decodes ahead for the streams and renders ahead for the ahead sources. A
-	/// <c>LoomApplication</c> calls it once a frame; an engine used on its own should too.
+	/// browser, by default) it also decodes ahead for the streams and renders ahead for the ahead sources. Last, it pumps
+	/// the device (<see cref="IAudioDevice.Pump"/>), which in the browser is when the frame's mix is rendered and sent. Call
+	/// it once a frame, after the frame has started what it plays.
 	/// </summary>
 	/// <exception cref="InvalidOperationException">An <see cref="AudioSource"/> or <see cref="AudioEffect"/> threw on the audio thread, an <see cref="AudioStream"/>'s file failed to decode, or an <see cref="AheadSource"/>'s inner source threw (the inner exception); it was stopped.</exception>
 	public void Update()
@@ -846,6 +850,11 @@ public sealed class AudioEngine : IDisposable
 		}
 		if (Interlocked.Exchange(ref _mixer.Fault, null) is { } fault)
 			throw new InvalidOperationException($"An audio source or effect threw on the audio thread, and was stopped: {fault.Message}", fault);
+
+		var now = Stopwatch.GetTimestamp();
+		var elapsed = _lastPump == 0 ? 0.0 : Stopwatch.GetElapsedTime(_lastPump, now).TotalSeconds;
+		_lastPump = now;
+		Device.Pump(elapsed);
 	}
 
 	/// <summary>Silences the device until <see cref="Resume"/>: the app has left the screen. Voices hold where they are.</summary>

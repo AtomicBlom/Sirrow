@@ -1,4 +1,4 @@
-namespace Loom.Hosting.Desktop.Sdl;
+namespace Loom.Audio.Sdl;
 
 /// <summary><c>SDL_AudioSpec</c>: a sample format, a channel count and a rate, in that order.</summary>
 internal struct SdlAudioSpec

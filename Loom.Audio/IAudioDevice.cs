@@ -41,4 +41,11 @@ public interface IAudioDevice : IDisposable
 
 	/// <summary>Starts asking for samples again after <see cref="Pause"/>.</summary>
 	void Resume();
+
+	/// <summary>
+	/// Called by <see cref="AudioEngine.Update"/> once a frame, on the engine's thread, with the time since the last call.
+	/// A device that has no audio thread of its own (the browser's, whose mix runs on the frame's thread) renders and
+	/// sends here what the output will need before the next frame; every other device does nothing.
+	/// </summary>
+	void Pump(double elapsedSeconds) { }
 }
