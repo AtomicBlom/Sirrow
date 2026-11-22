@@ -1,9 +1,9 @@
 namespace Loom.Audio;
 
 /// <summary>
-/// How an app's audio is opened and sized. Set an instance on <c>AppOptions.Audio</c> in <c>Configure</c> to have the
-/// host open its platform's output device (or hand one to <see cref="AudioEngine"/> directly). Every value is a request
-/// the backend meets as closely as the platform allows: <see cref="AudioEngine.Device"/> says what was granted.
+/// How an app's audio is opened and sized: handed to <see cref="AudioOutput.Open"/>, which opens the platform's output
+/// device for it, and to the <see cref="AudioEngine"/> made over that device. Every value is a request the backend meets
+/// as closely as the platform allows: <see cref="AudioEngine.Device"/> says what was granted.
 /// </summary>
 public sealed class AudioOptions
 {

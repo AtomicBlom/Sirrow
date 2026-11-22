@@ -855,10 +855,11 @@ hot reload in place of `loom-workbench`'s compiles. It is the way to take the wo
 can't go; for a game's own mix and controls beside the music, an extension (above) is simpler. Cut to what matters:
 
 ```csharp
-protected override void Configure(AppOptions options) => options.Audio = new AudioOptions();
-
+// Program: SdlAudio.Register() before LoomApplication.Run
 protected override void LoadContent()
 {
+	var options = new AudioOptions();
+	Audio = new AudioEngine(AudioOutput.Open(options), options);
 	_ui = new UIHost();
 	_painter = UIPainter.Create(Engine, _ui);
 	_view = _ui.CreateRoot(UILayer.Default);
@@ -876,6 +877,8 @@ protected override void Update(FrameTime time)
 	_workbench.Update(time.DeltaSeconds);            // the player, the meters, and a rebuild after an edit
 	// ... _state.Save(_workbench.CaptureState()) once a second: written only when it changed
 }
+
+// ... and Audio.Update() once a frame, Pause/Resume, SetFocused and Dispose (audio.md, "Turning it on")
 ```
 
 `loom-workbench`'s own app (`Loom.Audio.Workbench.App/WorkbenchApp.cs`) is this, with a `MusicProject` handing it

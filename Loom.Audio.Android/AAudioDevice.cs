@@ -1,10 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-using Loom.Audio;
-using Loom.Core.Diagnostics;
+using Android.Util;
 
-namespace Loom.Hosting.Android.Audio;
+namespace Loom.Audio.Android;
 
 /// <summary>
 /// Android's audio output, through AAudio: a low-latency output stream in 32-bit float stereo, asking for exclusive
@@ -19,6 +18,8 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 {
 	// Large enough for any callback a stream makes: AAudio never asks for more than its buffer's capacity
 	private const int ScratchFrames = 8192;
+	// logcat's tag for what the device reports as the output comes and goes, the tag the engine's own lines carry
+	private const string LogTag = "Loom";
 
 	private readonly AudioOptions _options;
 	private readonly object _gate = new(); // the game thread's and the reopening thread's; never taken on the audio thread
@@ -192,12 +193,12 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 			var failure = ReopenLocked();
 			if (failure.Length != 0)
 			{
-				LoomLog.Warning($"The audio output went and could not be reopened, so the app is silent: {failure}");
+				Log.Warn(LogTag, $"The audio output went and could not be reopened, so the app is silent: {failure}");
 				return;
 			}
-			LoomLog.Info($"audio output changed; now {Name}");
+			Log.Info(LogTag, $"audio output changed; now {Name}");
 			if (_running && StartLocked() is { Length: > 0 } notStarted)
-				LoomLog.Warning($"The audio output was reopened but would not start, so the app is silent: {notStarted}");
+				Log.Warn(LogTag, $"The audio output was reopened but would not start, so the app is silent: {notStarted}");
 		}
 	}
 
@@ -236,7 +237,7 @@ internal sealed unsafe class AAudioDevice : IAudioDevice
 			var failure = ReopenLocked();
 			if (failure.Length != 0)
 				return failure;
-			LoomLog.Info($"audio output was gone before it started; reopened as {Name}");
+			Log.Info(LogTag, $"audio output was gone before it started; reopened as {Name}");
 		}
 	}
 

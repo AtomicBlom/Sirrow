@@ -1,7 +1,7 @@
 using System.Diagnostics;
 
 using Loom.Audio;
-using Loom.Hosting.Desktop.Sdl;
+using Loom.Audio.Sdl;
 
 namespace Loom.Tests;
 

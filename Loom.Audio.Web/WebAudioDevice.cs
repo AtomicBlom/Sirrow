@@ -2,9 +2,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 
-using Loom.Audio;
-
-namespace Loom.Hosting.Web;
+namespace Loom.Audio.Web;
 
 /// <summary>
 /// The browser's audio output: an AudioWorklet (<c>loom-audio.js</c>) the mix is sent to once a frame. The mixer can't
@@ -19,7 +17,7 @@ namespace Loom.Hosting.Web;
 [SupportedOSPlatform("browser")]
 internal sealed partial class WebAudioDevice : IAudioDevice
 {
-	private const string Module = "loom-audio";
+	internal const string Module = "loom-audio";
 	private const int DefaultRate = 48_000;
 	private const int DefaultLeadFrames = 2_400; // 50 ms at 48 kHz: three frames of a 60 Hz display
 	private const int ChunkFrames = 1024;
@@ -74,8 +72,8 @@ internal sealed partial class WebAudioDevice : IAudioDevice
 	}
 
 	/// <summary>
-	/// The host's once-a-frame call: tops the worklet's queue up to the lead, or, while nothing can be heard, renders the
-	/// frame's worth of mix and drops it so the mix keeps time.
+	/// <see cref="AudioEngine.Update"/>'s once-a-frame call: tops the worklet's queue up to the lead, or, while nothing can
+	/// be heard, renders the frame's worth of mix and drops it so the mix keeps time.
 	/// </summary>
 	public void Pump(double deltaSeconds)
 	{

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+	<!-- The browser's audio output: Loom.Audio's device seam filled by an AudioWorklet (WebAudio.RegisterAsync). Razor SDK
+	     (an RCL) only so it ships its page modules as static web assets, served at _content/Loom.Audio.Web/: loom-audio.js,
+	     which the device's [JSImport]s call, and loom-audio-worklet.js, the worklet it loads. No Razor components. -->
+	<PropertyGroup>
+		<TargetFramework>net11.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<!-- The [JSImport] source generator emits unsafe marshaling code -->
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+	<!-- Browser-only: declaring the platform lets CA1416 check the guards -->
+	<ItemGroup>
+		<SupportedPlatform Include="browser" />
+	</ItemGroup>
+	<PropertyGroup Label="NuGet">
+		<PackageId>Loom.Audio.Web</PackageId>
+		<Description>The browser audio output for Loom.Audio: an AudioWorklet the mix is sent to once a frame.</Description>
+		<PackageTags>audio;webaudio;audioworklet;wasm;browser;gamedev;dotnet</PackageTags>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+	</PropertyGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Loom.Audio\Loom.Audio.csproj" />
+	</ItemGroup>
+</Project>
