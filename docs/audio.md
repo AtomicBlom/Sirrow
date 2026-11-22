@@ -40,7 +40,7 @@ guide calls the engine `Audio`, as a property of the app's:
 var options = new AudioOptions(); // the device's own rate and its smallest buffer
 Audio = new AudioEngine(AudioOutput.Open(options), options);
 var sfx = Audio.CreateBus("sfx");
-var hit = Audio.LoadWav(File.OpenRead("sounds/hit.wav"));
+var hit = Audio.LoadWav(File.ReadAllBytes("sounds/hit.wav"));
 Audio.Play(hit, sfx, volume: 0.8f, pitch: 1.1f, pan: -0.3f);
 ```
 

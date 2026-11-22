@@ -27,7 +27,7 @@ var options = new AudioOptions();
 var audio = new AudioEngine(AudioOutput.Open(options), options);
 var music = audio.CreateBus("music");
 var sfx = audio.CreateBus("sfx");
-var hit = audio.LoadWav(File.OpenRead("sounds/hit.wav"));
+var hit = audio.LoadWav(File.ReadAllBytes("sounds/hit.wav"));
 audio.Play(synth, music);               // an AudioSource of the game's own
 audio.Play(hit, sfx, volume: 0.8f, pitch: 1.1f, pan: -0.3f);
 synth.Cutoff.Value = 1200f;             // an AudioParameter, read on the audio thread
