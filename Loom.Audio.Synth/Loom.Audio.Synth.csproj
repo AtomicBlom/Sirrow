@@ -14,7 +14,8 @@
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 	</PropertyGroup>
 	<ItemGroup>
-		<InternalsVisibleTo Include="Loom.Tests" />
+		<InternalsVisibleTo Include="Loom.Audio.Tests" />
+		<InternalsVisibleTo Include="Loom.Audio.Workbench.Tests" />
 	</ItemGroup>
 	<ItemGroup>
 		<ProjectReference Include="..\Loom.Audio\Loom.Audio.csproj" />
