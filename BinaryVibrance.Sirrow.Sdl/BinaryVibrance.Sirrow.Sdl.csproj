@@ -21,6 +21,6 @@
 	</ItemGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="BinaryVibrance.Sirrow.Tests" />
-		<InternalsVisibleTo Include="Loom.Audio.Workbench.Tests" />
+		<InternalsVisibleTo Include="BinaryVibrance.SirrowStudio.Tests" />
 	</ItemGroup>
 </Project>

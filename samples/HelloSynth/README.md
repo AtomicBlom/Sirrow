@@ -1,15 +1,15 @@
 # HelloSynth
 
-A music project to open in `loom-workbench`: a demo song in A minor, four patches, a drum kit, two cues and a macro.
-It has no app of its own. `loom-workbench` compiles it, plays it, and compiles it again each time a file is saved, and
-`loom-workbench new` copies it as the start of a project of your own.
+A music project to open in `sirrow-studio`: a demo song in A minor, four patches, a drum kit, two cues and a macro.
+It has no app of its own. `sirrow-studio` compiles it, plays it, and compiles it again each time a file is saved, and
+`sirrow-studio new` copies it as the start of a project of your own.
 
 ## Open it
 
 From Sirrow's root:
 
 ```
-dotnet run --project Loom.Audio.Workbench.App -- samples/HelloSynth
+dotnet run --project BinaryVibrance.SirrowStudio.App -- samples/HelloSynth
 ```
 
 The window opens at once and plays the demo once the project has compiled (a few seconds the first time, while a
@@ -19,7 +19,7 @@ from `A` to `K` play the patch chosen. Ctrl K finds anything.
 To start a project of your own from this one, renamed for its folder:
 
 ```
-dotnet run --project Loom.Audio.Workbench.App -- new ../MyTunes
+dotnet run --project BinaryVibrance.SirrowStudio.App -- new ../MyTunes
 ```
 
 ## What's data and what's C#

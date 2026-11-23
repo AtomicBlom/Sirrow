@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
 	<!--
-		A music project to start from, and the one loom-workbench's "new" makes: a song, four patches and a kit, written in
-		the workbench and played from it with nothing else: open it with loom-workbench, as README.md says. Its song and
+		A music project to start from, and the one sirrow-studio's "new" makes: a song, four patches and a kit, written in
+		the workbench and played from it with nothing else: open it with sirrow-studio, as README.md says. Its song and
 		patches are files (Songs/*.song.json, Patches/*.patch.json) that Sirrow's music generator makes into C# as it builds;
 		what a file can't say (the kit, the cues, the catalog) is C# here.
 	-->

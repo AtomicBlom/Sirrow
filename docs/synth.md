@@ -3,7 +3,7 @@
 What [`BinaryVibrance.Sirrow.Synth`](../BinaryVibrance.Sirrow.Synth) adds over [the mixer](audio.md): the DSP building blocks a source is
 made of, effects for buses, a 16-operator synthesizer chip with patches, samples and drum kits, music written as code
 and its sequencer, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to. Beside
-it, `Loom.Audio.Workbench` is a window to write the music in (section 10).
+it, `BinaryVibrance.SirrowStudio` is a window to write the music in (section 10).
 
 The library depends only on `BinaryVibrance.Sirrow` and the BCL. The Loom SDK doesn't reference it for an app: an app or test
 project that wants it references it itself.
@@ -655,23 +655,23 @@ off the audio thread's deadline: the thread's load fell from 2.4% to 1.0% of it,
 
 ---
 
-## 10. The workbench: `Loom.Audio.Workbench`
+## 10. The workbench: `BinaryVibrance.SirrowStudio`
 
 A window for writing music, kept apart from `BinaryVibrance.Sirrow.Synth` because it is UI (Vysara) and the synth is not. A song
 stays in the game's own project, as files the workbench edits (section 11) and C# for what they can't say. The
 workbench plays it, shows it, lets you steer it, and plays it again each time a file is saved.
 
-Start it with `loom-workbench`, the app that opens a music project and compiles it again in-process with Roslyn on
+Start it with `sirrow-studio`, the app that opens a music project and compiles it again in-process with Roslyn on
 every save (below, "Opening a project"). From Sirrow's root:
 
 ```
-dotnet run --project Loom.Audio.Workbench.App -- samples/HelloSynth
-dotnet run --project Loom.Audio.Workbench.App -- new ../MyTunes        a project of your own, from HelloSynth, opened
+dotnet run --project BinaryVibrance.SirrowStudio.App -- samples/HelloSynth
+dotnet run --project BinaryVibrance.SirrowStudio.App -- new ../MyTunes        a project of your own, from HelloSynth, opened
 ```
 
 [`samples/HelloSynth`](../samples/HelloSynth) is a music project to start from: a demo song, four patches, a kit, two
 cues and a macro. An app can also host the workbench itself over a catalog of its own ("Hosting the workbench in an
-app of your own", at the end of this section), though `loom-workbench` is the way a game's music is written.
+app of your own", at the end of this section), though `sirrow-studio` is the way a game's music is written.
 
 What it shows, one job at a time: a rail down the left gives the middle of the window to **Arrange**, **Patch**,
 **Kit** or **Files**, and the keyboard docked along the bottom plays what that mode has chosen.
@@ -745,7 +745,7 @@ What it shows, one job at a time: a rail down the left gives the middle of the w
   its class and the file points at it (`"part": { "code": "Riff" }`, `"code": "Riff"`). In Patch, **Eject to code** does
   the same for a patch (`PatchCode`, a `partial` property). A piece that is code says where it is; **Bring back as data**
   writes what its code builds back to the file, if a file can say it, and takes its member out. The host does the C#
-  (`IMusicCode`; `Loom.Audio.Workbench.Projects`' `MusicCode`, with Roslyn), and what is ejected plays once the project
+  (`IMusicCode`; `BinaryVibrance.SirrowStudio.Projects`' `MusicCode`, with Roslyn), and what is ejected plays once the project
   has compiled. A member renamed or taken out by hand fails the build at the generated call.
 - **Files** (the rail's last button): every song's and patch's file and the C# that is theirs; the one chosen shown as it
   is, copied whole or a piece at a time: a C# file's class or any member (its indent taken off), a song's track, section
@@ -760,7 +760,7 @@ that the layout is smaller than the workbench needs, so a 1280 by 800 window on 
 
 **The catalog.** The workbench plays a `WorkbenchCatalog`: the songs, patches and kits, each a name and a factory, and
 the cues. The factories matter. A build changes what a factory returns, so the workbench calls it again after every
-build rather than keeping what it made. `loom-workbench` makes the catalog from the project's `[MusicCatalog]` class.
+build rather than keeping what it made. `sirrow-studio` makes the catalog from the project's `[MusicCatalog]` class.
 
 What it was doing is kept and restored (`CaptureState`, `RestoreState`): the song, whether it played and in which
 section, the loop, a scale played in place of the song's, the cues, the mutes, solos, gains and forced placements, and
@@ -771,14 +771,14 @@ to C, as a piano's keys lie. `Z` and `X` move it down and up an octave. `Space` 
 section. `Ctrl K` opens the command palette; `Escape` closes the palette, the library over the view, or a build's error.
 While a text field has the keys (the palette, the library's filter), the workbench leaves them alone.
 
-### Opening a project: `loom-workbench`
+### Opening a project: `sirrow-studio`
 
-`Loom.Audio.Workbench.App` builds `loom-workbench`, the workbench over any music project:
+`BinaryVibrance.SirrowStudio.App` builds `sirrow-studio`, the workbench over any music project:
 
 ```
-loom-workbench <project.csproj | its folder> [--extension <csproj>]
+sirrow-studio <project.csproj | its folder> [--extension <csproj>]
                                                  the workbench over that project, with its extension
-loom-workbench new <folder>                      a project to start from (HelloSynth's, renamed), opened
+sirrow-studio new <folder>                      a project to start from (HelloSynth's, renamed), opened
 ```
 
 Under `dotnet run` the arguments follow `--`, as above. A game can keep a one-line script beside its music that runs it
@@ -791,7 +791,7 @@ A music project is an ordinary class library whose assembly names its catalog:
 `string? MacroName(int id)`, whichever it has. The attribute is the synth's, not the workbench's, so a game's audio
 library carries it without referencing any UI.
 
-`Loom.Audio.Workbench.Projects` does the work, with no window, so tests and other hosts use it as the app does:
+`BinaryVibrance.SirrowStudio.Projects` does the work, with no window, so tests and other hosts use it as the app does:
 - **`MusicProject.OpenAsync(csproj)`** asks a design-time build (`dotnet msbuild -t:PrepareResources;Compile` with
   the compiler's execution skipped, out of process, restoring first if the project never was, in the host's
   configuration when it says which) for the compiler's command line, and makes it a Roslyn project: sources,
@@ -813,13 +813,13 @@ library carries it without referencing any UI.
 - **`ProjectTemplate.Create(folder)`** is what `new` writes: HelloSynth's C# and music files, its namespace renamed for
   the folder. Its `.csproj` references `BinaryVibrance.Sirrow.dll` and `BinaryVibrance.Sirrow.Synth.dll` from the workbench's own folder, and
   the music generator beside them as its analyzer, so they always match.
-- **What it was doing** is kept beside the project, in `.loom/workbench.json` (`WorkbenchStateFile.Beside`), restored
+- **What it was doing** is kept beside the project, in `.sirrow-studio/workbench.json` (`WorkbenchStateFile.Beside`), restored
   once the first build has played.
 
 **Extensions: a game's own tools.** A game that has more to offer than the music (its mix to play into, so a song
 sounds as it will in the game; its own controls; a recorded car under the music) writes an extension, in an assembly
 of its own: `[assembly: WorkbenchExtension(typeof(StudioExtras))]` on a public class implementing `IWorkbenchExtension`
-(in `Loom.Audio.Workbench`, so it needs no Roslyn or MSBuild):
+(in `BinaryVibrance.SirrowStudio`, so it needs no Roslyn or MSBuild):
 
 - `Output(AudioEngine)`: the bus the music plays into, or null for the workbench's own.
 - `Catalog`: its own build of the music, to play at once while the project's first compile runs, or null to wait.
@@ -830,8 +830,8 @@ of its own: `[assembly: WorkbenchExtension(typeof(StudioExtras))]` on a public c
   change to them is heard as it is saved); `Dispose`.
 
 The music project names its extension's project with an MSBuild property,
-`<LoomWorkbenchExtension>../Game.Studio/Game.Studio.csproj</LoomWorkbenchExtension>`, or `--extension <csproj>` gives
-one (`--extension none` for none). `loom-workbench` builds it in its own configuration and loads it once into the
+`<SirrowStudioExtension>../Game.Studio/Game.Studio.csproj</SirrowStudioExtension>`, or `--extension <csproj>` gives
+one (`--extension none` for none). `sirrow-studio` builds it in its own configuration and loads it once into the
 default context before the window opens, where the music's builds share what it references, as they share Loom; its
 own references load from beside it. It is built without building its references again (`BuildProjectReferences`
 false), taking them as they were last built, so it shares the very Loom the workbench's own build made: a shared
@@ -841,7 +841,7 @@ them. A game's script that starts the workbench builds the extension first, from
 `studio.ps1`), so its own references are up to date. It isn't reloaded: a change to its project's sources is said beside the build pill
 ("Game.Studio changed: restart to take it up"), and needs the workbench restarted. One built against
 another build of what the workbench runs is refused, as a project is (`SharedReferences`; a library built for several
-frameworks, Vysara, is compared only between builds for the same framework). `loom-workbench` runs on the newest .NET
+frameworks, Vysara, is compared only between builds for the same framework). `sirrow-studio` runs on the newest .NET
 installed (`RollForward` `LatestMajor`), so it opens a project, and loads an extension, that targets a newer .NET than
 Loom does.
 
@@ -851,7 +851,7 @@ again after a save in 0.35 to 0.45 s on a Snapdragon X: well under a bar (2.2 s 
 ### Hosting the workbench in an app of your own
 
 An app can put the workbench in a window of its own over a catalog it makes itself, and run under `dotnet watch` for
-hot reload in place of `loom-workbench`'s compiles. It is the way to take the workbench somewhere `loom-workbench`
+hot reload in place of `sirrow-studio`'s compiles. It is the way to take the workbench somewhere `sirrow-studio`
 can't go; for a game's own mix and controls beside the music, an extension (above) is simpler. Cut to what matters:
 
 ```csharp
@@ -881,7 +881,7 @@ protected override void Update(FrameTime time)
 // ... and Audio.Update() once a frame, Pause/Resume, SetFocused and Dispose (audio.md, "Turning it on")
 ```
 
-`loom-workbench`'s own app (`Loom.Audio.Workbench.App/WorkbenchApp.cs`) is this, with a `MusicProject` handing it
+`sirrow-studio`'s own app (`BinaryVibrance.SirrowStudio.App/WorkbenchApp.cs`) is this, with a `MusicProject` handing it
 each build (`WorkbenchProject`). `WorkbenchView.TransportExtras` is a panel for the host's own controls, on a row of
 its own across the transport bar once asked for, scrolling sideways if even that is too narrow. The workbench uses
 only `BinaryVibrance.Sirrow.Synth`'s public API, so a game can build a tool of its own the
@@ -891,7 +891,7 @@ playhead, and `Pattern(placement)`, one pass of a part's notes as the sequencer 
 
 ### What hot reload can and can't do
 
-Under `dotnet watch`, in an app hosting the workbench itself. `loom-workbench` has none of these limits: it compiles the
+Under `dotnet watch`, in an app hosting the workbench itself. `sirrow-studio` has none of these limits: it compiles the
 project whole and loads each build into a context of its own, whose static fields start afresh.
 
 - **A song, a patch and a kit are built by a method or a property, every time.** A `static readonly` field is
