@@ -15,7 +15,7 @@
 	</PropertyGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="BinaryVibrance.Sirrow.Tests" />
-		<InternalsVisibleTo Include="Loom.Audio.Workbench.Tests" />
+		<InternalsVisibleTo Include="BinaryVibrance.SirrowStudio.Tests" />
 	</ItemGroup>
 	<ItemGroup>
 		<ProjectReference Include="..\BinaryVibrance.Sirrow\BinaryVibrance.Sirrow.csproj" />

@@ -366,5 +366,5 @@ FodyWeavers.xsd
 captures/
 scratch-pub/
 
-# loom-workbench: what it was doing, kept beside each music project it opens
-.loom/
+# sirrow-studio: what it was doing, kept beside each music project it opens
+.sirrow-studio/
