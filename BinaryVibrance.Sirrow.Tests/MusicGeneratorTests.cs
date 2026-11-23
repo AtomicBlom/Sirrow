@@ -214,8 +214,8 @@ public class MusicGeneratorTests
 		var unclosed = Generate(("Songs/tune.song.json", "{ \"format\": \"sirrow-song/2\", \"name\": \"x\"")).Diagnostics.ShouldHaveSingleItem();
 		unclosed.GetMessage().ShouldContain("tune.song.json");
 
-		// A loom-song/1 file is refused, saying where its order or conduct goes
-		var old = Generate(("Songs/tune.song.json", Song.Replace("sirrow-song/2", "loom-song/1", StringComparison.Ordinal))).Diagnostics.ShouldHaveSingleItem();
+		// A kaldra-song/1 file is refused, saying where its order or conduct goes
+		var old = Generate(("Songs/tune.song.json", Song.Replace("sirrow-song/2", "kaldra-song/1", StringComparison.Ordinal))).Diagnostics.ShouldHaveSingleItem();
 		old.GetMessage().ShouldContain("\"exits\"");
 	}
 

@@ -40,7 +40,7 @@ namespace BinaryVibrance.Sirrow.Synth.Music;
 /// <see cref="ConditionText"/>'s. As a section ends the song goes where the first of its <c>"exits"</c> whose condition
 /// holds says, the last of them with no <c>"when"</c> where it has one, or plays it again where none holds
 /// (<see cref="Section.Exits"/>); <c>"hooks": ["OnBuilt"]</c> hands the built song to code of the game's own. A
-/// <c>loom-song/1</c> file, whose song-wide <c>"order"</c> or <c>"conduct"</c> chose the next section, is refused, naming
+/// <c>kaldra-song/1</c> file, whose song-wide <c>"order"</c> or <c>"conduct"</c> chose the next section, is refused, naming
 /// how to move it.
 /// </summary>
 public static class SongFile
@@ -49,10 +49,10 @@ public static class SongFile
 	public const string Format = "sirrow-song/2";
 
 	/// <summary>The same format under the library's name before it was Sirrow, read as <see cref="Format"/>.</summary>
-	public const string FormatBefore = "loom-song/2";
+	public const string FormatBefore = "kaldra-song/2";
 
-	// What a loom-song/1 file is told to do to be read
-	private const string FromVersion1 = "loom-song/1 chose the next section for the whole song (\"order\", \"conduct\"); sirrow-song/2 "
+	// What a kaldra-song/1 file is told to do to be read
+	private const string FromVersion1 = "kaldra-song/1 chose the next section for the whole song (\"order\", \"conduct\"); sirrow-song/2 "
 		+ "gives each section its \"exits\": [{ \"when\": \"…\", \"then\": \"section\" }, …, { \"then\": \"section\" }], tried in "
 		+ "order as it ends. An order A, B, C is A's exits [{ \"then\": \"B\" }] and so on round; a section played twice in a "
 		+ "row is [{ \"when\": \"pass < 2\", \"then\": itself }, …]; conduct's rules are each section's exits. Then set "
@@ -267,8 +267,8 @@ public static class SongFile
 		using var document = PatchFile.Parse(json);
 		var root = document.RootElement;
 		var format = PatchFile.String(root, "format");
-		if (format == "loom-song/1")
-			throw new FormatException($"A song file says \"format\": \"loom-song/1\"; this reads \"{Format}\". {FromVersion1}.");
+		if (format == "kaldra-song/1")
+			throw new FormatException($"A song file says \"format\": \"kaldra-song/1\"; this reads \"{Format}\". {FromVersion1}.");
 		if (format != Format && format != FormatBefore)
 			throw new FormatException($"A song file says \"format\": \"{format}\"; this reads \"{Format}\".");
 		if (root.TryGetProperty("order", out _) || root.TryGetProperty("conduct", out _))

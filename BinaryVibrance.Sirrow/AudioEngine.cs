@@ -364,7 +364,7 @@ public sealed class AudioEngine : IDisposable
 
 	/// <summary>
 	/// Tells the engine whether the app has focus: out of it, the whole output fades to <see cref="UnfocusedVolume"/>
-	/// over a quarter of a second, and back on return. A <c>LoomApplication</c> calls it as its window or tab gains and loses
+	/// over a quarter of a second, and back on return. A <c>KaldraApplication</c> calls it as its window or tab gains and loses
 	/// focus; the game's own volumes are untouched.
 	/// </summary>
 	public void SetFocused(bool focused)

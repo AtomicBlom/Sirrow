@@ -5,7 +5,7 @@ made of, effects for buses, a 16-operator synthesizer chip with patches, samples
 and its sequencer, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to. Beside
 it, `BinaryVibrance.SirrowStudio` is a window to write the music in (section 10).
 
-The library depends only on `BinaryVibrance.Sirrow` and the BCL. The Loom SDK doesn't reference it for an app: an app or test
+The library depends only on `BinaryVibrance.Sirrow` and the BCL. The Kaldra SDK doesn't reference it for an app: an app or test
 project that wants it references it itself.
 
 ---
@@ -782,8 +782,8 @@ sirrow-studio new <folder>                      a project to start from (HelloSy
 ```
 
 Under `dotnet run` the arguments follow `--`, as above. A game can keep a one-line script beside its music that runs it
-(RubberTrack's `studio.ps1`). It isn't a `dotnet tool`: it is a Loom app, with native libraries (SDL 3) and compiled
-shaders beside it, built from the Loom it shares with the music it opens.
+(RubberTrack's `studio.ps1`). It isn't a `dotnet tool`: it is a Kaldra app, with native libraries (SDL 3) and compiled
+shaders beside it, built from the Kaldra it shares with the music it opens.
 
 A music project is an ordinary class library whose assembly names its catalog:
 `[assembly: MusicCatalog(typeof(Catalog))]` (`BinaryVibrance.Sirrow.Synth.Music`). The workbench reads the class's public static
@@ -804,10 +804,10 @@ library carries it without referencing any UI.
   (`Workbench.UseCatalog`, which keeps the song, the selections and the cue values by name, swapping the song at the
   next bar) or its errors to the build pill (`Workbench.ReportBuild`, "Songs/Tune.cs(12,5): error CS1002: ; expected"),
   and releases the build before it, whose context unloads once nothing playing refers to it.
-- **Loom is shared, never loaded again.** A build's context resolves whatever the host can (Loom above all, whose types
+- **Kaldra is shared, never loaded again.** A build's context resolves whatever the host can (Kaldra above all, whose types
   the workbench and the music must share) from the host's own context, and the rest of the project's references from
   their paths (a project reference from the assembly built beside its reference assembly). So every reference the host
-  has loaded must be the very build it runs: a project built against another Loom, or a reference rebuilt since the
+  has loaded must be the very build it runs: a project built against another Kaldra, or a reference rebuilt since the
   workbench started, is refused with a message naming both files (`SharedReferences`, by module version id). A change
   to the project's own references (another project of the game's) needs the workbench restarted.
 - **`ProjectTemplate.Create(folder)`** is what `new` writes: HelloSynth's C# and music files, its namespace renamed for
@@ -832,9 +832,9 @@ of its own: `[assembly: WorkbenchExtension(typeof(StudioExtras))]` on a public c
 The music project names its extension's project with an MSBuild property,
 `<SirrowStudioExtension>../Game.Studio/Game.Studio.csproj</SirrowStudioExtension>`, or `--extension <csproj>` gives
 one (`--extension none` for none). `sirrow-studio` builds it in its own configuration and loads it once into the
-default context before the window opens, where the music's builds share what it references, as they share Loom; its
+default context before the window opens, where the music's builds share what it references, as they share Kaldra; its
 own references load from beside it. It is built without building its references again (`BuildProjectReferences`
-false), taking them as they were last built, so it shares the very Loom the workbench's own build made: a shared
+false), taking them as they were last built, so it shares the very Kaldra the workbench's own build made: a shared
 project built again is another build, even from the same sources, since its sources' paths are in it (a build started
 from `c:\` rather than `C:\` compiles it again). Only an extension whose references were never built is built with
 them. A game's script that starts the workbench builds the extension first, from the same path (RubberTrack's
@@ -843,7 +843,7 @@ them. A game's script that starts the workbench builds the extension first, from
 another build of what the workbench runs is refused, as a project is (`SharedReferences`; a library built for several
 frameworks, Vysara, is compared only between builds for the same framework). `sirrow-studio` runs on the newest .NET
 installed (`RollForward` `LatestMajor`), so it opens a project, and loads an extension, that targets a newer .NET than
-Loom does.
+Kaldra does.
 
 RubberTrack's audio library (its songs, patches, kits and their samples) opens and compiles in about 1.7 s, and compiles
 again after a save in 0.35 to 0.45 s on a Snapdragon X: well under a bar (2.2 s at 108 bpm).
@@ -855,7 +855,7 @@ hot reload in place of `sirrow-studio`'s compiles. It is the way to take the wor
 can't go; for a game's own mix and controls beside the music, an extension (above) is simpler. Cut to what matters:
 
 ```csharp
-// Program: SdlAudio.Register() before LoomApplication.Run
+// Program: SdlAudio.Register() before KaldraApplication.Run
 protected override void LoadContent()
 {
 	var options = new AudioOptions();
@@ -912,7 +912,7 @@ The mutes, solos, gains and forced placements carry over by name.
 
 ## 11. Music as data
 
-A patch or a song can be a file rather than code: JSON a tool writes and reads back exactly, which Loom's music
+A patch or a song can be a file rather than code: JSON a tool writes and reads back exactly, which Kaldra's music
 generator turns into the C# a person would have written as the project builds. The game builds and runs the C#, so
 NativeAOT and the browser are as they were; the workbench edits the files.
 
@@ -941,7 +941,7 @@ envelope is `"gate"`, `"decay s"` or `"adsr a d s r"`; a mode `"at ratio seconds
 **`sirrow-song/2`** (`SongFile`): a song, its patches, kits, cues and macros named, written a part to a line:
 `SongFile.Write(song, names)` from a built song (`SongNames` says what the catalog calls each patch, kit and macro, and
 gives a group's effects, which a built song can't), `ToJson` to add what a built song can't say before writing (its
-hooks), and `Load(json, bindings)` to build one at run time (`SongBindings` binds the names). A `loom-song/1` file,
+hooks), and `Load(json, bindings)` to build one at run time (`SongBindings` binds the names). A `kaldra-song/1` file,
 whose song-wide `order` or `conduct` chose the next section, is refused, saying how to move it to each section's exits.
 Its pieces:
 

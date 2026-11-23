@@ -197,9 +197,9 @@ internal sealed class SongEmitter(MusicContext context)
 			named.Str is { } sectionName && sections.TryGetValue(sectionName, out var v) ? v : throw new JsonError($"no section is named {named}", named.Span);
 
 		if (root["order"] is { } orderList)
-			throw new JsonError("a song-wide \"order\" is loom-song/1's: give each section its \"exits\" (an order A, B, C is A's [{ \"then\": \"B\" }] and so on round)", orderList.Span);
+			throw new JsonError("a song-wide \"order\" is kaldra-song/1's: give each section its \"exits\" (an order A, B, C is A's [{ \"then\": \"B\" }] and so on round)", orderList.Span);
 		if (root["conduct"] is { } conduct)
-			throw new JsonError("a song-wide \"conduct\" is loom-song/1's: its rules are each section's \"exits\"", conduct.Span);
+			throw new JsonError("a song-wide \"conduct\" is kaldra-song/1's: its rules are each section's \"exits\"", conduct.Span);
 		var exitLines = new List<string>();
 		foreach (var section in root["sections"]?.Items ?? [])
 		{

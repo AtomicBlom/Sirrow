@@ -132,10 +132,10 @@ public sealed class MusicGenerator : IIncrementalGenerator
 			var patch = path.EndsWith(".patch.json", StringComparison.OrdinalIgnoreCase);
 			var expected = patch ? "sirrow-patch/1" : "sirrow-song/2";
 			// The same formats under the library's name before it was Sirrow
-			var before = patch ? "loom-patch/1" : "loom-song/2";
+			var before = patch ? "kaldra-patch/1" : "kaldra-song/2";
 			if (format != expected && format != before)
 				throw new JsonError($"{Path.GetFileName(path)} says \"format\": \"{format}\"; the generator reads \"{expected}\""
-					+ (format == "loom-song/1" ? " (move the song-wide \"order\" or \"conduct\" into each section's \"exits\", then set the format)" : ""),
+					+ (format == "kaldra-song/1" ? " (move the song-wide \"order\" or \"conduct\" into each section's \"exits\", then set the format)" : ""),
 					root["format"]?.Span ?? new TextSpan(0, 0));
 			return root;
 		}

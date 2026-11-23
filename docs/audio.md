@@ -4,7 +4,7 @@ How to make sound with Sirrow: clips played on voices, mixed through buses, and 
 itself sample by sample (software synthesizers, procedural engine notes, generated music). Then what runs on which
 thread, and what each platform does underneath.
 
-[`BinaryVibrance.Sirrow`](../Sirrow) holds the mixer and depends only on the BCL, as `Loom.Input` does. It needs no engine:
+[`BinaryVibrance.Sirrow`](../Sirrow) holds the mixer and depends only on the BCL, as `BinaryVibrance.Kaldra.Input` does. It needs no engine:
 the engine knows nothing of audio, and an app opens its output itself. Each platform's output is a package of its own
 behind one seam, `IAudioDevice`:
 
@@ -59,7 +59,7 @@ The app runs the engine through its own lifecycle. These are the calls, and when
 | As the window or tab loses or regains focus | `Audio.SetFocused(focused)`: the output fades to `AudioOptions.UnfocusedVolume` and back (see below). |
 | As the app closes | `Audio.Dispose()`, which closes the device. |
 
-In a `LoomApplication`, those are `LoadContent`, `BeforeRender`, `OnSuspending` / `OnResumed`, `OnFocusChanged` and
+In a `KaldraApplication`, those are `LoadContent`, `BeforeRender`, `OnSuspending` / `OnResumed`, `OnFocusChanged` and
 `UnloadContent`. `samples/HelloAudio` does exactly that.
 
 ### `AudioOptions`
@@ -468,7 +468,7 @@ from, the end and a fault passed on, nothing allocated once it plays, and a real
 
 Three threads share an `AudioEngine`:
 
-- **The frame thread** (the thread that made the engine, the app's in a `LoomApplication`) calls every method. A call
+- **The frame thread** (the thread that made the engine, the app's in a `KaldraApplication`) calls every method. A call
   from any other thread throws, except making clips (`CreateClip`, `LoadWav`), which touches no shared state.
 - **The audio thread** (the device's) mixes. It never waits on the game.
 - **The worker** (`Sirrow audio worker`), when streams or ahead sources need it (or at once, with `StartWorker`):
@@ -489,7 +489,7 @@ and through `Stats`.
 Once running, neither side allocates: not a play, a stop, a volume change, or a block of the mix.
 `AudioEngineTests.The_mix_allocates_nothing_once_running` holds the engine to that. The game's own allocations still
 matter: a garbage collection the game sets off pauses the audio thread too. A game that keeps its steady frame free of
-allocations, as Loom's render loop is, keeps its audio safe as well.
+allocations, as Kaldra's render loop is, keeps its audio safe as well.
 
 ### Watching the mix
 

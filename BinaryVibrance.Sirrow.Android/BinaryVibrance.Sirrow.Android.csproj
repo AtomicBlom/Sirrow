@@ -3,7 +3,7 @@
 	     BinaryVibrance.Sirrow.slnx, so the desktop build never needs the android workload. -->
 	<PropertyGroup>
 		<TargetFramework>net11.0-android</TargetFramework>
-		<!-- Android 10, as Loom.Hosting.Android; AAudio itself is there from Android 8 -->
+		<!-- Android 10, as BinaryVibrance.Kaldra.Hosting.Android; AAudio itself is there from Android 8 -->
 		<SupportedOSPlatformVersion>29</SupportedOSPlatformVersion>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
