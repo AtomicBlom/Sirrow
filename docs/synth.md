@@ -657,7 +657,7 @@ off the audio thread's deadline: the thread's load fell from 2.4% to 1.0% of it,
 
 ## 10. The workbench: `Loom.Audio.Workbench`
 
-A window for writing music, kept apart from `Loom.Audio.Synth` because it is UI (SUIsei) and the synth is not. A song
+A window for writing music, kept apart from `Loom.Audio.Synth` because it is UI (Vysara) and the synth is not. A song
 stays in the game's own project, as files the workbench edits (section 11) and C# for what they can't say. The
 workbench plays it, shows it, lets you steer it, and plays it again each time a file is saved.
 
@@ -841,7 +841,7 @@ them. A game's script that starts the workbench builds the extension first, from
 `studio.ps1`), so its own references are up to date. It isn't reloaded: a change to its project's sources is said beside the build pill
 ("Game.Studio changed: restart to take it up"), and needs the workbench restarted. One built against
 another build of what the workbench runs is refused, as a project is (`SharedReferences`; a library built for several
-frameworks, SUIsei, is compared only between builds for the same framework). `loom-workbench` runs on the newest .NET
+frameworks, Vysara, is compared only between builds for the same framework). `loom-workbench` runs on the newest .NET
 installed (`RollForward` `LatestMajor`), so it opens a project, and loads an extension, that targets a newer .NET than
 Loom does.
 
@@ -867,7 +867,7 @@ protected override void LoadContent()
 	if (_state.Load() is { } state)                  // a WorkbenchStateFile
 		_workbench.RestoreState(state);              // where it was before a restart
 	_view.Root.Content = new WorkbenchView(_workbench.ViewModel);
-	PushInputLayer(new SUIseiInputLayer(_ui));
+	PushInputLayer(new VysaraInputLayer(_ui));
 	// ... a graph with the UI pass over the backbuffer
 }
 
@@ -902,7 +902,7 @@ project whole and loads each build into a context of its own, whose static field
   by itself when `DOTNET_WATCH_RESTART_ON_RUDE_EDIT` is `true`. The app comes back playing where it was, from its state
   file.
 - A song that fails to build after an edit shows its error in the banner, and the old one plays on. Fix it and save.
-- A change to a `.xaml` view reloads the view (SUIsei's own hot reload). The views are `ItemsControl`s bound to the view
+- A change to a `.xaml` view reloads the view (Vysara's own hot reload). The views are `ItemsControl`s bound to the view
   models, so a reload builds their rows again from what the view models hold.
 
 After an edit, the song rebuilt is swapped in at the next bar (`MusicPlayer.Swap`), in the same section at the same bar.
