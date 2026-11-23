@@ -1,5 +1,5 @@
 {
-  "format": "loom-patch/1",
+  "format": "sirrow-patch/1",
   "name": "pluck",
   "about": "A plucked string, its pluck shaped at the pick point.",
   "operators": [{ "name": "stringOp", "kind": "string", "decaySeconds": 2.5, "damping": 0.4 }],

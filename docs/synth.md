@@ -1,11 +1,11 @@
 # Synthesis
 
-What [`Loom.Audio.Synth`](../Loom.Audio.Synth) adds over [the mixer](audio.md): the DSP building blocks a source is
+What [`BinaryVibrance.Sirrow.Synth`](../BinaryVibrance.Sirrow.Synth) adds over [the mixer](audio.md): the DSP building blocks a source is
 made of, effects for buses, a 16-operator synthesizer chip with patches, samples and drum kits, music written as code
 and its sequencer, and sound rendered offline, to measure it in a test or save it as a WAV file to listen to. Beside
 it, `Loom.Audio.Workbench` is a window to write the music in (section 10).
 
-The library depends only on `Loom.Audio` and the BCL. The Loom SDK doesn't reference it for an app: an app or test
+The library depends only on `BinaryVibrance.Sirrow` and the BCL. The Loom SDK doesn't reference it for an app: an app or test
 project that wants it references it itself.
 
 ---
@@ -72,7 +72,7 @@ The rules:
 - A frequency between two bins of `Spectrum` reads lower than its amplitude, by up to 1.4 dB with the Hann window.
   `LevelAt` reads any frequency exactly, so measure a known frequency with it.
 
-### Taking a sound apart: `Loom.Audio.Synth.Analysis`
+### Taking a sound apart: `BinaryVibrance.Sirrow.Synth.Analysis`
 
 For designing a patch like a recording, or judging a change to a mix without ears. Each takes one channel (or
 interleaved stereo for a mix) and its rate, and, like `AudioAnalysis`, allocates.
@@ -90,7 +90,7 @@ interleaved stereo for a mix) and its rate, and, like `AudioAnalysis`, allocates
 | `NoteMeasures.Strike` | How much brighter the first 15 ms are than 60 ms in |
 | `MixMeasures.Balance`, `Spread` | A mix's energy by band, its centre, its crest, how wide it is; a stretch in brief |
 
-## 4. Building blocks: `Loom.Audio.Synth.Dsp`
+## 4. Building blocks: `BinaryVibrance.Sirrow.Synth.Dsp`
 
 What an `AudioSource` is made of. The structs hold their own state and are meant to be **fields of a source**: set
 them up in `OnStart` (on the game thread), step them in `Render`. None allocates after it is made, so they are safe
@@ -149,7 +149,7 @@ sealed class Buzz : AudioSource
 }
 ```
 
-## 5. Effects: `Loom.Audio.Synth.Effects`
+## 5. Effects: `BinaryVibrance.Sirrow.Synth.Effects`
 
 `AudioEffect`s to put on a bus with `AudioEngine.AddEffect` ([Effects and sends](audio.md#effects-and-sends)), or to
 run on a synthesizer's own groups. Each is a sealed class with its controls as public `AudioParameter` and
@@ -306,7 +306,7 @@ filters: at 1× (`oversampling: 1`, or `Fx.Distortion(…, oversampling: 1)`) it
 | `OutputDb` | −6, eased | The distorted sound's level |
 | `Mix` | 1, eased | The distorted sound's share |
 
-## 6. Patches: `Loom.Audio.Synth.Chip`
+## 6. Patches: `BinaryVibrance.Sirrow.Synth.Chip`
 
 A `Patch` is an instrument as data: up to 16 operators, which of them are heard, and what the voice does after them.
 It is immutable. Write one with `Patch.Build`, whose action adds operators to a `PatchBuilder` and routes them:
@@ -492,7 +492,7 @@ chip.SetMacro(guitar, new Macro(1), 0.6f);
 Feedback and the filter are each about a fifth of a voice's cost: both are recursions, each sample waiting on the one
 before.
 
-## 9. Music: `Loom.Audio.Synth.Music`
+## 9. Music: `BinaryVibrance.Sirrow.Synth.Music`
 
 Music written as code, played on a chip by a sequencer on the audio clock. A song is a method that builds new data each
 time it is called, so `dotnet watch` can rebuild it and `MusicPlayer.Swap` play the new one without a break:
@@ -657,12 +657,12 @@ off the audio thread's deadline: the thread's load fell from 2.4% to 1.0% of it,
 
 ## 10. The workbench: `Loom.Audio.Workbench`
 
-A window for writing music, kept apart from `Loom.Audio.Synth` because it is UI (Vysara) and the synth is not. A song
+A window for writing music, kept apart from `BinaryVibrance.Sirrow.Synth` because it is UI (Vysara) and the synth is not. A song
 stays in the game's own project, as files the workbench edits (section 11) and C# for what they can't say. The
 workbench plays it, shows it, lets you steer it, and plays it again each time a file is saved.
 
 Start it with `loom-workbench`, the app that opens a music project and compiles it again in-process with Roslyn on
-every save (below, "Opening a project"). From Loom's root:
+every save (below, "Opening a project"). From Sirrow's root:
 
 ```
 dotnet run --project Loom.Audio.Workbench.App -- samples/HelloSynth
@@ -786,7 +786,7 @@ Under `dotnet run` the arguments follow `--`, as above. A game can keep a one-li
 shaders beside it, built from the Loom it shares with the music it opens.
 
 A music project is an ordinary class library whose assembly names its catalog:
-`[assembly: MusicCatalog(typeof(Catalog))]` (`Loom.Audio.Synth.Music`). The workbench reads the class's public static
+`[assembly: MusicCatalog(typeof(Catalog))]` (`BinaryVibrance.Sirrow.Synth.Music`). The workbench reads the class's public static
 `Songs`, `Patches` and `Kits` (lists of `(string Name, Func<T> Build)`), `Cues` (`IReadOnlyList<CueBase>`) and
 `string? MacroName(int id)`, whichever it has. The attribute is the synth's, not the workbench's, so a game's audio
 library carries it without referencing any UI.
@@ -811,7 +811,7 @@ library carries it without referencing any UI.
   workbench started, is refused with a message naming both files (`SharedReferences`, by module version id). A change
   to the project's own references (another project of the game's) needs the workbench restarted.
 - **`ProjectTemplate.Create(folder)`** is what `new` writes: HelloSynth's C# and music files, its namespace renamed for
-  the folder. Its `.csproj` references `Loom.Audio.dll` and `Loom.Audio.Synth.dll` from the workbench's own folder, and
+  the folder. Its `.csproj` references `BinaryVibrance.Sirrow.dll` and `BinaryVibrance.Sirrow.Synth.dll` from the workbench's own folder, and
   the music generator beside them as its analyzer, so they always match.
 - **What it was doing** is kept beside the project, in `.loom/workbench.json` (`WorkbenchStateFile.Beside`), restored
   once the first build has played.
@@ -884,7 +884,7 @@ protected override void Update(FrameTime time)
 `loom-workbench`'s own app (`Loom.Audio.Workbench.App/WorkbenchApp.cs`) is this, with a `MusicProject` handing it
 each build (`WorkbenchProject`). `WorkbenchView.TransportExtras` is a panel for the host's own controls, on a row of
 its own across the transport bar once asked for, scrolling sideways if even that is too narrow. The workbench uses
-only `Loom.Audio.Synth`'s public API, so a game can build a tool of its own the
+only `BinaryVibrance.Sirrow.Synth`'s public API, so a game can build a tool of its own the
 same way: a placement's `Section`, `Track`, `Condition` (whose `ToString` says it in words), `LevelCue` and
 `IsOnPhrase`; a cue's `OptionNames` and `OptionValue`; the player's `Get` and `Set` for any cue, `SectionTick` for a
 playhead, and `Pattern(placement)`, one pass of a part's notes as the sequencer plays them.
@@ -916,12 +916,12 @@ A patch or a song can be a file rather than code: JSON a tool writes and reads b
 generator turns into the C# a person would have written as the project builds. The game builds and runs the C#, so
 NativeAOT and the browser are as they were; the workbench edits the files.
 
-**`loom-patch/1`** (`PatchFile`): a `PatchSpec` as JSON. Each operator is named and routed by name, and only what differs
+**`sirrow-patch/1`** (`PatchFile`): a `PatchSpec` as JSON. Each operator is named and routed by name, and only what differs
 from a new spec's defaults is written, so `Write` then `Read` gives back the same spec, float for float.
 
 ```json
 {
-  "format": "loom-patch/1",
+  "format": "sirrow-patch/1",
   "name": "electric-piano",
   "about": "An electric piano: a tine's bell over a tone bar that barks when struck hard",
   "operators": [
@@ -938,7 +938,7 @@ A kind is `sine`, `saw`, `pulse`, `noise`, `level`, `string`, `tube` or `modes`;
 envelope is `"gate"`, `"decay s"` or `"adsr a d s r"`; a mode `"at ratio seconds [level]"` or `"fixed hz seconds
 [level]"`; a macro its number. `PatchSpec.About` carries `"about"`.
 
-**`loom-song/2`** (`SongFile`): a song, its patches, kits, cues and macros named, written a part to a line:
+**`sirrow-song/2`** (`SongFile`): a song, its patches, kits, cues and macros named, written a part to a line:
 `SongFile.Write(song, names)` from a built song (`SongNames` says what the catalog calls each patch, kit and macro, and
 gives a group's effects, which a built song can't), `ToJson` to add what a built song can't say before writing (its
 hooks), and `Load(json, bindings)` to build one at run time (`SongBindings` binds the names). A `loom-song/1` file,
@@ -958,13 +958,13 @@ Its pieces:
 A condition (`ConditionText`) is `"intensity > 0.6"`, `"intensity < 0.2"`, `"biome is Forest"` or the section's pass,
 `"pass < 2"`, joined by `and`, `or`, `not` and brackets.
 
-**The generator** (`Loom.Audio.Music.Generator`) reads a project's `AdditionalFiles` ending `.patch.json` and
+**The generator** (`BinaryVibrance.Sirrow.Music.Generator`) reads a project's `AdditionalFiles` ending `.patch.json` and
 `.song.json`. Every patch file becomes a property of one `static partial class Patches` in the project's root namespace,
 named for its file (`electric-piano.patch.json` is `Patches.ElectricPiano`), written as `PatchCode` writes it. Every song
 file becomes `static partial class OpenRoad` (from `open-road.song.json`) with `public static Song Build()`, in the
 namespace of its folder. A name in a song is a member of the project's classes: `Patches.UprightBass`, `Kits.General`,
 `Cues.Intensity`, `Macros.Bright`; a choice cue's enum and an effect's argument types come from the compilation. What a
-file says that can't be code is an error, `LOOMMUSIC001`, at its line in the file.
+file says that can't be code is an error, `SIRROWMUSIC001`, at its line in the file.
 
 What a file can't say is code, declared by the generated class and written in the game's own half of it, so a missing or
 renamed member fails the build: a part (`private static partial Part Name();`), a placement (`private static partial
@@ -976,13 +976,13 @@ Placement Name(Section section, SongTrack track);`), a patch (`public static par
   <AdditionalFiles Include="Patches\*.patch.json;Songs\*.song.json" />
   <CompilerVisibleProperty Include="RootNamespace" />
   <CompilerVisibleProperty Include="ProjectDir" />
-  <ProjectReference Include="..\Loom\Loom.Audio.Music.Generator\Loom.Audio.Music.Generator.csproj"
+  <ProjectReference Include="..\Sirrow\BinaryVibrance.Sirrow.Music.Generator\BinaryVibrance.Sirrow.Music.Generator.csproj"
                     OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 </ItemGroup>
 ```
 
-The classes the names are found in can be others (`LoomMusicPatches`, `LoomMusicKits`, `LoomMusicCues`,
-`LoomMusicMacros`, each made visible the same way). `MusicGeneratorTests` checks that the generated patch and song build
+The classes the names are found in can be others (`SirrowMusicPatches`, `SirrowMusicKits`, `SirrowMusicCues`,
+`SirrowMusicMacros`, each made visible the same way). `MusicGeneratorTests` checks that the generated patch and song build
 what `PatchFile.Load` and `SongFile.Load` build from the same files; RubberTrack moved its 48 patches and ten songs onto
 the files and every render stayed bit-identical.
 

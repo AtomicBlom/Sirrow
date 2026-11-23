@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- Software synthesis over Sirrow: DSP building blocks, effects, a fixed-voice synthesizer chip with patches as
+	     data, and music written as code (scales, notation, songs, a sequencer). Depends only on Sirrow and the BCL. -->
+	<PropertyGroup>
+		<TargetFramework>net11.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<IsAotCompatible>true</IsAotCompatible>
+	</PropertyGroup>
+	<PropertyGroup Label="NuGet">
+		<PackageId>BinaryVibrance.Sirrow.Synth</PackageId>
+		<Description>Software synthesis for .NET: DSP building blocks, effects, a 16-operator synthesizer chip with patches as data, sampled drum kits, and music written as code.</Description>
+		<PackageTags>audio;synthesis;fm;music;sequencer;gamedev;dotnet</PackageTags>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+	</PropertyGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="BinaryVibrance.Sirrow.Tests" />
+		<InternalsVisibleTo Include="Loom.Audio.Workbench.Tests" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\BinaryVibrance.Sirrow\BinaryVibrance.Sirrow.csproj" />
+	</ItemGroup>
+	<!-- The music generator, packed as this package's analyzer, so a project writing music for the chip (its patch and song
+	     files) gets it with the package; build/BinaryVibrance.Sirrow.Synth.props makes visible the properties it reads. Built first,
+	     never referenced: it is a netstandard2.0 analyzer, no part of this assembly. -->
+	<ItemGroup>
+		<ProjectReference Include="..\BinaryVibrance.Sirrow.Music.Generator\BinaryVibrance.Sirrow.Music.Generator.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+		<None Include="..\BinaryVibrance.Sirrow.Music.Generator\bin\$(Configuration)\netstandard2.0\BinaryVibrance.Sirrow.Music.Generator.dll" Pack="true" PackagePath="analyzers\dotnet\cs" Visible="false" />
+		<None Include="build\BinaryVibrance.Sirrow.Synth.props" Pack="true" PackagePath="build" />
+	</ItemGroup>
+</Project>

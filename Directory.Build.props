@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <PropertyGroup Label="NuGet package metadata (every packable project here)">
-    <Version>$(LoomVersion)</Version>
+    <Version>$(SirrowVersion)</Version>
     <Authors>AtomicBlom</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/AtomicBlom/Sirrow</PackageProjectUrl>

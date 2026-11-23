@@ -3,7 +3,7 @@
 	<!--
 		A music project to start from, and the one loom-workbench's "new" makes: a song, four patches and a kit, written in
 		the workbench and played from it with nothing else: open it with loom-workbench, as README.md says. Its song and
-		patches are files (Songs/*.song.json, Patches/*.patch.json) that Loom's music generator makes into C# as it builds;
+		patches are files (Songs/*.song.json, Patches/*.patch.json) that Sirrow's music generator makes into C# as it builds;
 		what a file can't say (the kit, the cues, the catalog) is C# here.
 	-->
 	<PropertyGroup>
@@ -14,7 +14,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\..\Loom.Audio.Synth\Loom.Audio.Synth.csproj" />
+		<ProjectReference Include="..\..\BinaryVibrance.Sirrow.Synth\BinaryVibrance.Sirrow.Synth.csproj" />
 	</ItemGroup>
 
 	<!-- The music as data: the generator makes C# of each file as the project builds -->
@@ -22,7 +22,7 @@
 		<AdditionalFiles Include="Patches\*.patch.json;Songs\*.song.json" />
 		<CompilerVisibleProperty Include="RootNamespace" />
 		<CompilerVisibleProperty Include="ProjectDir" />
-		<ProjectReference Include="..\..\Loom.Audio.Music.Generator\Loom.Audio.Music.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="..\..\BinaryVibrance.Sirrow.Music.Generator\BinaryVibrance.Sirrow.Music.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 	</ItemGroup>
 
 </Project>
