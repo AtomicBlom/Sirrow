@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<!-- The audio subsystem: the mixer, buses, voices, clips and game-written sources (synthesizers), behind a device seam
-	     each platform's host fills (SDL 3 on the desktop, AAudio on Android, an AudioWorklet in the browser). Depends only on
-	     the BCL, as BinaryVibrance.Kaldra.Input does, so every host and the headless tests share it. -->
+	     each platform's output fills (SDL 3 on the desktop, AAudio on Android, an AudioWorklet in the browser); effects and
+	     the DSP building blocks they and sources are made of; rendering offline, WAV files and measures. Depends only on the
+	     BCL, so every output and the headless tests share it. -->
 	<PropertyGroup>
 		<TargetFramework>net11.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
@@ -11,12 +12,13 @@
 	</PropertyGroup>
 	<PropertyGroup Label="NuGet">
 		<PackageId>BinaryVibrance.Sirrow</PackageId>
-		<Description>Low-latency audio for .NET: a lock-free, allocation-free mixer with buses, pooled voices, decoded clips and game-written sources for software synthesis, behind a device seam each platform host fills.</Description>
-		<PackageTags>audio;synthesis;mixer;gamedev;dotnet</PackageTags>
+		<Description>Low-latency audio for .NET: a lock-free, allocation-free mixer with buses, pooled voices, decoded clips, effects and game-written sources, behind a device seam each platform's output fills; offline rendering and measurement.</Description>
+		<PackageTags>audio;mixer;effects;dsp;gamedev;dotnet</PackageTags>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 	</PropertyGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="BinaryVibrance.Sirrow.Tests" />
-		<InternalsVisibleTo Include="BinaryVibrance.SirrowStudio.Tests" />
+		<InternalsVisibleTo Include="BinaryVibrance.Lunelle.Tests" />
+		<InternalsVisibleTo Include="BinaryVibrance.LunelleStudio.Tests" />
 	</ItemGroup>
 </Project>

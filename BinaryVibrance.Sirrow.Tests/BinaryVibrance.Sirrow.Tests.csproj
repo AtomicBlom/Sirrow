@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The audio's tests: the mixer, decoders and outputs (Sirrow, BinaryVibrance.Sirrow.Sdl), synthesis and music
-       (BinaryVibrance.Sirrow.Synth), and the music generator. Nothing of the engine's: what these test needs no window or GPU. -->
+  <!-- Sirrow's tests: the mixer, decoders and outputs (BinaryVibrance.Sirrow, .Sdl), its effects and building blocks,
+       and rendering offline. Nothing of an engine's: what these test needs no window or GPU. -->
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -14,8 +14,6 @@
   <ItemGroup>
     <PackageReference Include="TUnit" />
     <PackageReference Include="Shouldly" />
-    <!-- Compiles the C# that PatchCode writes, to check it builds the patch it was written from -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,12 +27,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BinaryVibrance.Sirrow.Synth\BinaryVibrance.Sirrow.Synth.csproj" />
+    <ProjectReference Include="..\BinaryVibrance.Sirrow\BinaryVibrance.Sirrow.csproj" />
     <ProjectReference Include="..\BinaryVibrance.Sirrow.Sdl\BinaryVibrance.Sirrow.Sdl.csproj" />
-    <!-- Driven in-process by MusicGeneratorTests, as a library rather than as this project's analyzer -->
-    <ProjectReference Include="..\BinaryVibrance.Sirrow.Music.Generator\BinaryVibrance.Sirrow.Music.Generator.csproj" />
-    <!-- The sample music project, whose generated music is checked against its files -->
-    <ProjectReference Include="..\samples\HelloSynth\HelloSynth.csproj" />
   </ItemGroup>
 
 </Project>

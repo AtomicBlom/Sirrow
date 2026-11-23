@@ -1,9 +1,0 @@
-{
-  "format": "sirrow-patch/1",
-  "name": "pluck",
-  "about": "A plucked string, its pluck shaped at the pick point.",
-  "operators": [{ "name": "stringOp", "kind": "string", "decaySeconds": 2.5, "damping": 0.4 }],
-  "out": [{ "op": "stringOp" }],
-  "filter": { "kind": "lowPass", "cutoff": 5000, "keyTrack": 0.3 },
-  "sends": { "space": 0.25 }
-}

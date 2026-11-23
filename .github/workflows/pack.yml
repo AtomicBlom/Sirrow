@@ -1,7 +1,7 @@
 name: Pack
 
-# Every push and PR packs Sirrow's packages: BinaryVibrance.Sirrow (the mixer), .Sdl, .Android and .Web (the outputs) and
-# .Synth (synthesis and music, with its music generator). A push to master also
+# Every push and PR packs Sirrow's packages: BinaryVibrance.Sirrow (the mixer and its effects), and .Sdl, .Android and
+# .Web (the outputs). A push to master also
 # publishes a test build to GitHub Packages (the projects' version, then .ci.<run>). A v* tag publishes the release to
 # nuget.org, versioned by the tag (v0.1.0-preview.2 packs 0.1.0-preview.2).
 on:
@@ -45,7 +45,7 @@ jobs:
       - name: Pack
         shell: bash
         run: |
-          for project in BinaryVibrance.Sirrow/BinaryVibrance.Sirrow.csproj BinaryVibrance.Sirrow.Sdl/BinaryVibrance.Sirrow.Sdl.csproj BinaryVibrance.Sirrow.Web/BinaryVibrance.Sirrow.Web.csproj BinaryVibrance.Sirrow.Synth/BinaryVibrance.Sirrow.Synth.csproj BinaryVibrance.Sirrow.Android/BinaryVibrance.Sirrow.Android.csproj; do
+          for project in BinaryVibrance.Sirrow/BinaryVibrance.Sirrow.csproj BinaryVibrance.Sirrow.Sdl/BinaryVibrance.Sirrow.Sdl.csproj BinaryVibrance.Sirrow.Web/BinaryVibrance.Sirrow.Web.csproj BinaryVibrance.Sirrow.Android/BinaryVibrance.Sirrow.Android.csproj; do
             dotnet pack "$project" -c Release -o artifacts/packages "-p:Version=$VERSION"
           done
       - uses: actions/upload-artifact@v4

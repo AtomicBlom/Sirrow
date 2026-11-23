@@ -1,4 +1,4 @@
-# Sirrow — low-latency audio and software synthesis
+# Sirrow — low-latency audio for .NET
 
 `BinaryVibrance.Sirrow` is low-latency audio for .NET: a mixer with buses and
 pooled voices, clips decoded into memory, and **sources** — sound a game writes itself, sample by sample, for software
@@ -40,6 +40,10 @@ audio.Pause(); audio.Resume(); audio.SetFocused(false); audio.Dispose();
 
 `samples/HelloAudio` is a whole app: an eight-voice synthesizer played from the keyboard, an arpeggiator running on
 the audio thread's sample clock, and a clip fired from the game, on the desktop, on Android and in the browser.
+
+Effects for buses (`BinaryVibrance.Sirrow.Effects`), the DSP building blocks a source is made of
+(`BinaryVibrance.Sirrow.Dsp`) and rendering offline (`OfflineSession`, `WavWriter`, `AudioAnalysis`) are in the same
+package. A synthesizer chip with patches, drum kits and songs is [Lunelle](https://github.com/AtomicBlom/Lunelle).
 
 ## Write a source
 

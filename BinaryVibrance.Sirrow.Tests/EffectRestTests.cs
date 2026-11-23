@@ -1,5 +1,5 @@
 using BinaryVibrance.Sirrow;
-using BinaryVibrance.Sirrow.Synth.Effects;
+using BinaryVibrance.Sirrow.Effects;
 
 namespace BinaryVibrance.Sirrow.Tests;
 

@@ -1,6 +1,6 @@
 name: CI
 
-# The audio, its outputs, synthesis and the generator build warning-clean and their tests pass. Nothing here needs a GPU
+# The audio, its outputs and effects build warning-clean and their tests pass. Nothing here needs a GPU
 # or a window, so a hosted Linux runner does it all; the real-device test (SdlAudioDeviceTests) skips there, having no
 # SDL3.dll for Linux and no output.
 on:
