@@ -1,5 +1,4 @@
-using BinaryVibrance.Sirrow.Synth;
-using BinaryVibrance.Sirrow.Synth.Dsp;
+using BinaryVibrance.Sirrow.Dsp;
 
 namespace BinaryVibrance.Sirrow.Tests;
 

@@ -1,5 +1,4 @@
 using BinaryVibrance.Sirrow;
-using BinaryVibrance.Sirrow.Synth;
 
 namespace BinaryVibrance.Sirrow.Tests;
 

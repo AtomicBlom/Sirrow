@@ -1,10 +1,5 @@
 <Solution>
-  <Folder Name="/samples/">
-    <Project Path="samples/HelloSynth/HelloSynth.csproj" />
-  </Folder>
-  <Project Path="BinaryVibrance.Sirrow.Music.Generator/BinaryVibrance.Sirrow.Music.Generator.csproj" />
   <Project Path="BinaryVibrance.Sirrow.Sdl/BinaryVibrance.Sirrow.Sdl.csproj" />
-  <Project Path="BinaryVibrance.Sirrow.Synth/BinaryVibrance.Sirrow.Synth.csproj" />
   <Project Path="BinaryVibrance.Sirrow.Tests/BinaryVibrance.Sirrow.Tests.csproj" />
   <Project Path="BinaryVibrance.Sirrow.Web/BinaryVibrance.Sirrow.Web.csproj" />
   <Project Path="BinaryVibrance.Sirrow/BinaryVibrance.Sirrow.csproj" />

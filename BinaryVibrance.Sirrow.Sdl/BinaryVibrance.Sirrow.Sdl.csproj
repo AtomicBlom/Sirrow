@@ -21,6 +21,6 @@
 	</ItemGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="BinaryVibrance.Sirrow.Tests" />
-		<InternalsVisibleTo Include="BinaryVibrance.SirrowStudio.Tests" />
+		<InternalsVisibleTo Include="BinaryVibrance.LunelleStudio.Tests" />
 	</ItemGroup>
 </Project>

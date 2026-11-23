@@ -18,8 +18,8 @@ behind one seam, `IAudioDevice`:
 arpeggiator timed on the audio clock, and a clip fired from the game. It builds as a desktop exe, an Android APK and a
 browser app from the same source.
 
-Sound built on top of the mixer (rendering offline to measure it or save it as a WAV file) is in
-[`BinaryVibrance.Sirrow.Synth`](../BinaryVibrance.Sirrow.Synth), and [the synthesis guide](synth.md) covers it.
+Rendering offline (to measure sound or save it as a WAV file), the effects and the DSP building blocks are
+[their own guide](effects.md). A synthesizer chip with patches, drum kits and songs is [Lunelle](https://github.com/AtomicBlom/Lunelle), built on Sirrow.
 
 ---
 
@@ -304,7 +304,7 @@ several buses share one reverb.
 ```csharp
 var sfx = Audio.CreateBus("sfx");
 var space = Audio.CreateBus("space");          // the room several buses send to
-Audio.AddEffect(space, new Reverb());          // BinaryVibrance.Sirrow.Synth.Effects; Wet 1, Dry 0 suit a bus fed by sends
+Audio.AddEffect(space, new Reverb());          // BinaryVibrance.Sirrow.Effects; Wet 1, Dry 0 suit a bus fed by sends
 var toSpace = Audio.AddSend(sfx, space, 0.1f);
 Audio.AddEffect(Audio.Master, new Limiter());
 
@@ -335,8 +335,8 @@ Audio.SetSendLevel(toSpace, 0.4f, fadeSeconds: 0.2f); // more of the sound off t
   `Audio.Update`, as a source's is.
 - Add effects and sends at load. A bus holds at most `AudioOptions.MaxEffectsPerBus`, the engine at most
   `AudioOptions.MaxSends`, and none is removed: `Bypass` turns an effect off, and a level of 0 silences a send.
-- `BinaryVibrance.Sirrow.Synth`'s `Effects` namespace has a reverb, delay, chorus, compressor, limiter, EQ and distortion
-  (`docs/synth.md`, "Effects").
+- The `BinaryVibrance.Sirrow.Effects` namespace has a reverb, delay, chorus, compressor, limiter, EQ and distortion
+  ([effects.md](effects.md), "Effects").
 
 ---
 
@@ -447,7 +447,7 @@ Audio.Play(_music, musicBus);
   waiting and waking every 2 ms while there are ahead sources (with `AudioWork.Update`, `Audio.Update()` does it). The
   audio thread only copies from the ring, so its cost there is a copy, whatever the inner source costs.
 - **The lead is latency.** A change to the inner source's controls is heard up to the lead later. Music can take that
-  (the music player's `aheadSeconds`, [synth.md](synth.md)); a sound effect, a sound that follows the player's hands or a click
+  (Lunelle's music player's `aheadSeconds`, [Lunelle](https://github.com/AtomicBlom/Lunelle)); a sound effect, a sound that follows the player's hands or a click
   of the UI should play directly.
 - **A play doesn't stall the frame.** With a worker, the worker renders the first lead and the source is silent until
   it is waiting (a few milliseconds), which isn't counted as an underrun; rendering it on the frame thread cost a song of
@@ -575,7 +575,7 @@ frame (the browser's does that), and it pauses and resumes on request.
 
 An `AudioEngine` also works on its own, over any `IAudioDevice`. `OfflineAudioDevice` renders only when asked, on the
 caller's thread: for tests, for rendering to a file faster than real time, and for a host that pumps audio itself.
-`BinaryVibrance.Sirrow.Synth`'s `OfflineSession` wraps one, keeping what it renders ([the synthesis guide](synth.md)).
+`OfflineSession` wraps one, keeping what it renders ([effects.md](effects.md)).
 `BinaryVibrance.Sirrow.Tests` tests the mixer through it (`AudioEngineTests`, `AudioEffectTests`, `AudioDuckTests`, `Audio3DTests`, `AudioStreamTests`, `AudioEventQueueTests`,
 `WavDecoderTests`, `VorbisDecoderTests`, `FlacDecoderTests`), opening an output and pumping it through
 `AudioOutputTests`, and the real SDL device through `SdlAudioDeviceTests`, which skip where SDL3 or an output is
