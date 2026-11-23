@@ -1,5 +1,5 @@
 {
-  "format": "loom-patch/1",
+  "format": "sirrow-patch/1",
   "name": "saw lead",
   "about": "A saw lead whose filter the Bright macro opens. Each saw starts at a different place in its cycle: two starting together are one loud wave, a click.",
   "operators": [

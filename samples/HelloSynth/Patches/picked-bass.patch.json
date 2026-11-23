@@ -1,5 +1,5 @@
 {
-  "format": "loom-patch/1",
+  "format": "sirrow-patch/1",
   "name": "picked bass",
   "about": "A picked bass: a sine with a little feedback, a bright pick at the start of each note.",
   "operators": [

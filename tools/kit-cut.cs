@@ -1,4 +1,4 @@
-// Cuts a drum sample library down to a small kit for Loom.Audio.Synth's DrumKit.Load: Ogg files and a kit.json.
+// Cuts a drum sample library down to a small kit for BinaryVibrance.Sirrow.Synth's DrumKit.Load: Ogg files and a kit.json.
 // Usage: dotnet run --file tools/kit-cut.cs -- <map.json> <outDir>
 //
 // map.json names each piece's layers and takes in the library (docs/synth.md, "Samples and kits"):

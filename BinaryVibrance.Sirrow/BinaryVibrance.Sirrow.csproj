@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- The audio subsystem: the mixer, buses, voices, clips and game-written sources (synthesizers), behind a device seam
+	     each platform's host fills (SDL 3 on the desktop, AAudio on Android, an AudioWorklet in the browser). Depends only on
+	     the BCL, as Loom.Input does, so every host and the headless tests share it. -->
+	<PropertyGroup>
+		<TargetFramework>net11.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<!-- The engine and everything downstream of it must stay NativeAOT-clean. -->
+		<IsAotCompatible>true</IsAotCompatible>
+	</PropertyGroup>
+	<PropertyGroup Label="NuGet">
+		<PackageId>BinaryVibrance.Sirrow</PackageId>
+		<Description>Low-latency audio for .NET: a lock-free, allocation-free mixer with buses, pooled voices, decoded clips and game-written sources for software synthesis, behind a device seam each platform host fills.</Description>
+		<PackageTags>audio;synthesis;mixer;gamedev;dotnet</PackageTags>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+	</PropertyGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="BinaryVibrance.Sirrow.Tests" />
+		<InternalsVisibleTo Include="Loom.Audio.Workbench.Tests" />
+	</ItemGroup>
+</Project>

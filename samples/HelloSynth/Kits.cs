@@ -1,4 +1,4 @@
-using Loom.Audio.Synth.Chip;
+using BinaryVibrance.Sirrow.Synth.Chip;
 
 namespace HelloSynth;
 

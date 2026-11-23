@@ -6,7 +6,7 @@ It has no app of its own. `loom-workbench` compiles it, plays it, and compiles i
 
 ## Open it
 
-From Loom's root:
+From Sirrow's root:
 
 ```
 dotnet run --project Loom.Audio.Workbench.App -- samples/HelloSynth
@@ -26,14 +26,14 @@ dotnet run --project Loom.Audio.Workbench.App -- new ../MyTunes
 
 | File | What it is |
 |---|---|
-| `Songs/demo.song.json` | The song (`loom-song/2`): tempo, scale, tracks, the verse (twice) and chorus with their exits, each part's notation and condition. The roll edits it. |
-| `Patches/*.patch.json` | The patches (`loom-patch/1`): each operator named, routed by name. The patch designer edits them. |
+| `Songs/demo.song.json` | The song (`sirrow-song/2`): tempo, scale, tracks, the verse (twice) and chorus with their exits, each part's notation and condition. The roll edits it. |
+| `Patches/*.patch.json` | The patches (`sirrow-patch/1`): each operator named, routed by name. The patch designer edits them. |
 | `Catalog.cs` | What the workbench finds: `[assembly: MusicCatalog(typeof(Catalog))]` on a class listing the songs, patches, kits and cues. |
 | `Cues.cs`, `Mood.cs` | The cues the song listens to: `intensity`, a level (the lead comes in with it), and `mood`, one of `Mood`'s values (a motif for each). |
 | `Kits.cs` | The drum kit, as code: a kit of patches, so it needs no samples. |
 | `Macros.cs` | The `bright` macro the lead's patch reads, which its track follows from the intensity. |
 
-As the project builds, Loom's music generator (`Loom.Audio.Music.Generator`, the project's analyzer) turns each JSON
+As the project builds, Sirrow's music generator (`BinaryVibrance.Sirrow.Music.Generator`, the project's analyzer) turns each JSON
 file into the C# a person would have written: `Songs.Demo.Build()`, `Patches.ElectricPiano`. A game builds and runs
 that C#, so nothing reads JSON at run time. Any piece can be ejected to C# from the workbench, to do something the
 files can't say, and brought back as data later.
