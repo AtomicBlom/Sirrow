@@ -4,7 +4,7 @@ Audio for .NET: a low-latency mixer with buses and pooled voices, clips and musi
 FLAC, 3D voices, and **sources**, sound a program writes itself sample by sample: software synthesizers, procedural
 engine notes, generated music. On top of it, a 16-operator synthesizer chip with patches and drum kits, effects, and
 music written as data or code with a sequencer. It needs no engine and no window. Sirrow was split out of the
-[Loom engine](https://github.com/AtomicBlom/Loom) (now Kaldra). Its packages are `BinaryVibrance.Sirrow` and the rest.
+[Kaldra engine](https://github.com/AtomicBlom/Kaldra), once called Loom. Its packages are `BinaryVibrance.Sirrow` and the rest.
 
 | Project | What it is |
 |---|---|

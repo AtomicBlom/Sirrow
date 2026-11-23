@@ -3,7 +3,7 @@
 Rebuilds libloomaaudio.so, the AAudio callback shim (loom_aaudio.c), for each ABI BinaryVibrance.Sirrow.Android ships, into lib/<abi>/.
 
 .DESCRIPTION
-The built libraries are checked in, so building Loom needs no NDK; run this only after changing loom_aaudio.c. Finds the
+The built libraries are checked in, so building Sirrow needs no NDK; run this only after changing loom_aaudio.c. Finds the
 NDK from -Ndk, then ANDROID_NDK_ROOT / ANDROID_NDK_HOME, then the newest under the user's Android SDK.
 Linked for 16 KB pages, which Android 15 devices may use and Google Play requires.
 

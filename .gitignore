@@ -362,7 +362,7 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-# Loom: throwaway cross-backend capture/verification PNGs (--capture output)
+# Kaldra: throwaway cross-backend capture/verification PNGs (--capture output)
 captures/
 scratch-pub/
 

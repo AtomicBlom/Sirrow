@@ -30,7 +30,7 @@ internal static unsafe class AAudioShim
 			return (0, 0, "the AAudio callback shim, libloomaaudio.so, is not in the app");
 		if (!NativeLibrary.TryGetExport(library, "loom_aaudio_data", out var data)
 			|| !NativeLibrary.TryGetExport(library, "loom_aaudio_error", out var error))
-			return (0, 0, "libloomaaudio.so exports no loom_aaudio_data and loom_aaudio_error, so it is not Loom's AAudio shim");
+			return (0, 0, "libloomaaudio.so exports no loom_aaudio_data and loom_aaudio_error, so it is not Sirrow's AAudio shim");
 		return (data, error, "");
 	}
 

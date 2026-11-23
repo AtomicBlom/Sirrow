@@ -33,7 +33,7 @@ public static class PatchFile
 	public const string Format = "sirrow-patch/1";
 
 	/// <summary>The same format under the library's name before it was Sirrow, read as <see cref="Format"/>.</summary>
-	public const string FormatBefore = "loom-patch/1";
+	public const string FormatBefore = "kaldra-patch/1";
 
 	private static readonly OperatorSpec Defaults = new();
 

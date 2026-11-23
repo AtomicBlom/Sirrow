@@ -5,7 +5,7 @@ namespace BinaryVibrance.Sirrow.Tests;
 
 /// <summary>
 /// A section's exits and its passes as the music model has them: <c>pass</c> in a condition, read and written; exits in a
-/// <c>sirrow-song/2</c> file, read and written, and a <c>loom-song/1</c> file refused with how to move it; a part on one pass
+/// <c>sirrow-song/2</c> file, read and written, and a <c>kaldra-song/1</c> file refused with how to move it; a part on one pass
 /// alone; where a placement is in its section, what it plays through it, and the notes a track sounds; a section's chords
 /// bar by bar.
 /// </summary>
@@ -91,7 +91,7 @@ public class SectionExitTests
 	[Test]
 	public void A_version_1_file_is_refused_with_how_to_move_it()
 	{
-		var old = File.Replace("sirrow-song/2", "loom-song/1", StringComparison.Ordinal);
+		var old = File.Replace("sirrow-song/2", "kaldra-song/1", StringComparison.Ordinal);
 		Should.Throw<FormatException>(() => SongFile.Load(old, Bindings)).Message.ShouldContain("\"exits\"");
 
 		var withOrder = File.Replace("\"sections\": [", "\"order\": [\"verse\"],\n  \"sections\": [", StringComparison.Ordinal);
