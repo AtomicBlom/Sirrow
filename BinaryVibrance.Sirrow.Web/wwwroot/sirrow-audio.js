@@ -10,7 +10,19 @@
 let context = null;
 let node = null;
 let written = 0;   // frames sent to the worklet
-let played = 0;    // frames the worklet reports it has played
+let played = 0;    // frames the worklet last reported it had played in all
+let playedAt = -1; // the audio clock (seconds) at that report, or -1 before the first
+
+// How far the worklet has played by now: its last report, and since it the audio clock's time, none past what was sent. The
+// page takes the worklet's reports as tasks, which the browser holds back while a mouse button is down and still (it waits
+// to see a gesture), though it goes on drawing frames; counted by reports alone the queue would look full, nothing would be
+// sent, and the music would stop until the mouse moved. The clock is the audio thread's, read here with no task.
+function playedNow() {
+	if (playedAt < 0)
+		return played;
+	const since = Math.max(0, (context.currentTime - playedAt) * context.sampleRate);
+	return Math.min(written, played + Math.floor(since));
+}
 let failure = null;
 
 // Opens the output at `sampleRate` (the AudioContext resamples to the hardware's rate where it differs) and returns the
@@ -20,7 +32,7 @@ export function audioOpen(sampleRate) {
 	const workletUrl = new URL('./sirrow-audio-worklet.js', import.meta.url);
 	context.audioWorklet.addModule(workletUrl).then(() => {
 		node = new AudioWorkletNode(context, 'sirrow-audio', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
-		node.port.onmessage = e => { played += e.data; };
+		node.port.onmessage = e => { [played, playedAt] = e.data; };
 		node.connect(context.destination);
 	}).catch(e => {
 		failure = e;
@@ -40,7 +52,7 @@ export function audioOpen(sampleRate) {
 export function audioFramesWanted(leadFrames) {
 	if (!node || failure || context.state !== 'running')
 		return -1;
-	const queued = written - played;
+	const queued = written - playedNow();
 	return Math.min(leadFrames, Math.max(0, leadFrames - queued));
 }
 

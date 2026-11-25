@@ -1,12 +1,12 @@
 // Sirrow's AudioWorklet: plays the interleaved stereo chunks the page sends (sirrow-audio.js), 128 frames a call on the
-// browser's audio thread, and reports back how many it has played. Run dry (the page's frames stalled) it plays silence
-// and counts none of it, so the page's count of what is queued stays true.
+// browser's audio thread, and reports back how many it has played in all, with the audio clock it was told at. Run dry (the
+// page's frames stalled) it plays silence and counts none of it, so the page's count of what is queued stays true.
 class SirrowAudioProcessor extends AudioWorkletProcessor {
 	constructor() {
 		super();
 		this.chunks = [];
 		this.offset = 0;     // frames of chunks[0] already played
-		this.played = 0;     // frames played since the last report
+		this.played = 0;     // frames played in all
 		this.calls = 0;
 		this.port.onmessage = e => this.chunks.push(e.data);
 	}
@@ -36,10 +36,11 @@ class SirrowAudioProcessor extends AudioWorkletProcessor {
 			left[i] = 0;
 			right[i] = 0;
 		}
-		// Every fourth call (about 11 ms at 48 kHz): often enough to keep the page's count close, rarely enough to cost nothing
+		// Every fourth call (about 11 ms at 48 kHz): often enough to keep the page's count close, rarely enough to cost nothing.
+		// The total, not what is new, and when: a report the page takes late (its tasks held back while a button is down) is
+		// still exact, and it reckons on from the clock until the next.
 		if (++this.calls >= 4) {
-			this.port.postMessage(this.played);
-			this.played = 0;
+			this.port.postMessage([this.played, currentTime + frames / sampleRate]);
 			this.calls = 0;
 		}
 		return true;
